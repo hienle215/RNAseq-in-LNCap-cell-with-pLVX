@@ -1,0 +1,42 @@
+#!/bin/bash -l
+
+#SBATCH -J Novogene_download
+#SBATCH --partition=small
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=8G
+#SBATCH --time=64:00:00
+#SBATCH --mail-type=END,FAIL
+#SBATCH --mail-user=hien.le@tuni.fi
+
+set -euo pipefail
+
+#------------------------- Paths -------------------------#
+
+BASE_DIR="/scratch/svc_td_mbpcg/projects/HanaL/RNAseq"
+DOWNLOAD_DIR="${BASE_DIR}/Novogene"
+
+mkdir -p "$DOWNLOAD_DIR"
+
+cd "$DOWNLOAD_DIR"
+
+echo "Starting download..."
+date
+
+URL1="https://objectstorage.uk-london-1.oraclecloud.com/p/KMfj8hR5vJDarV-fsNJSV3skjwuZRI9oCnl4IFZAEEl086dk9cQGAurLudFZkrOh/n/cnyr09qj8zbo/b/england-data/o/out/CP2023030600059/X208SC26072014-Z01-F001/X208SC26072014-Z01-F001_01.tar"
+
+URL2="https://objectstorage.uk-london-1.oraclecloud.com/p/KMfj8hR5vJDarV-fsNJSV3skjwuZRI9oCnl4IFZAEEl086dk9cQGAurLudFZkrOh/n/cnyr09qj8zbo/b/england-data/o/out/CP2023030600059/X208SC26072014-Z01-F001/X208SC26072014-Z01-F001_02.tar"
+
+echo "Downloading file 1..."
+wget -c --show-progress "$URL1"
+
+echo "Downloading file 2..."
+wget -c --show-progress "$URL2"
+
+echo ""
+echo "========================================"
+echo "Download completed!"
+date
+echo ""
+
+ls -lh
