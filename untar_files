@@ -1,0 +1,3 @@
+mkdir extracted
+tar -xvf X208SC26072014-Z01-F001_01.tar -C extracted/
+tar -xvf X208SC26072014-Z01-F001_02.tar -C extracted/
