@@ -1,0 +1,58 @@
+#### loading libraries---------------------------------------------------------
+library(tximport)
+library(DESeq2)
+library(dplyr)
+library(stringr)
+library(readr)
+library(tibble)
+
+### loading samples------------------------------------------------------------
+kallisto.dir <- "C:/Users/leh/OneDrive - TUNI.fi/Documents/output_kallisto"
+
+## Find all abundance.tsv files
+############################################################
+files <- list.files(  path = kallisto.dir,  pattern = "abundance.tsv$",  recursive = TRUE,  full.names = TRUE)
+length(files)
+sample.names <- basename(dirname(files))
+names(files) <- sample.names
+head(files)
+
+### sample information
+#############################################################
+sample.info <- data.frame(  sample = sample.names,  stringsAsFactors = FALSE)
+sample.info$dox <- ifelse(  grepl("_dox_", sample.info$sample),  "Dox",  "NoDox")
+sample.info$variant <- case_when(
+  grepl("^luc", sample.info$sample) ~ "luc",
+  grepl("^far", sample.info$sample) ~ "far",
+  grepl("^near", sample.info$sample) ~ "near",
+  grepl("^main", sample.info$sample) ~ "main")
+
+sample.info$replicate <- str_extract(sample.info$sample, "[123]$")
+sample.info$dox <- factor(sample.info$dox,
+                          levels = c("NoDox","Dox"))
+sample.info$variant <- factor(sample.info$variant,
+                              levels = c("luc","far","near","main"))
+sample.info
+table(sample.info$variant, sample.info$dox)
+
+#### build txt2gene
+################################################################################################################
+example <- read_tsv(  files[1],  show_col_types = FALSE)
+library(tidyr)
+library(dplyr)
+library(stringr)
+
+tx2gene <- example %>%
+  transmute(
+    TXNAME = target_id,
+    GENEID = str_split_fixed(target_id, "\\|", 9)[,2]
+  ) %>%
+  distinct()
+
+head(tx2gene)
+
+head(tx2gene)
+
+### Import with tximport
+#################################################################################################################
+txi <- tximport(  files,  type = "kallisto",  tx2gene = tx2gene,  ignoreTxVersion = FALSE)
