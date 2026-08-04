@@ -1,0 +1,633 @@
+###############################################################
+## RNA-seq Differential Expression Analysis
+## Part 1
+## main vs main_dox
+###############################################################
+
+rm(list = ls())
+
+###############################
+## Load libraries
+###############################
+
+library(tximport)
+library(DESeq2)
+library(readr)
+library(dplyr)
+library(stringr)
+library(tibble)
+library(tidyr)
+library(ggplot2)
+library(ggrepel)
+library(pheatmap)
+
+###############################
+## Set kallisto directory
+###############################
+
+kallisto.dir <- "C:/Users/leh/OneDrive - TUNI.fi/Documents/output_kallisto"
+
+###############################
+## Find abundance.tsv files
+###############################
+
+all.files <- list.files(
+    path = kallisto.dir,
+    pattern = "abundance.tsv$",
+    recursive = TRUE,
+    full.names = TRUE
+)
+
+all.sample.names <- basename(dirname(all.files))
+
+all.sample.names
+
+###############################################################
+## Keep only main samples
+###############################################################
+
+keep.idx <- grepl("^main", all.sample.names)
+
+files <- all.files[keep.idx]
+sample.names <- all.sample.names[keep.idx]
+
+names(files) <- sample.names
+
+files
+
+length(files)
+
+stopifnot(length(files) == 6)
+
+stopifnot(all(file.exists(files)))
+
+###############################################################
+## Sample information
+###############################################################
+
+sample.info <- data.frame(
+    sample = sample.names,
+    stringsAsFactors = FALSE
+)
+
+sample.info$dox <- ifelse(
+    grepl("_dox_", sample.info$sample),
+    "Dox",
+    "NoDox"
+)
+
+sample.info$dox <- factor(
+    sample.info$dox,
+    levels = c("NoDox","Dox")
+)
+
+sample.info$replicate <- str_extract(
+    sample.info$sample,
+    "[123]$"
+)
+
+rownames(sample.info) <- sample.info$sample
+
+sample.info
+
+table(sample.info$dox)
+
+###############################################################
+## Build tx2gene
+###############################################################
+
+example <- read_tsv(
+    files[1],
+    show_col_types = FALSE
+)
+
+head(example)
+
+split.ids <- str_split_fixed(
+    example$target_id,
+    "\\|",
+    9
+)
+
+tx2gene <- tibble(
+
+    TXNAME = example$target_id,
+
+    GENEID = split.ids[,2],
+
+    SYMBOL = split.ids[,6]
+
+)
+
+tx2gene <- distinct(tx2gene)
+
+head(tx2gene)
+
+tx2gene.simple <- tx2gene %>%
+
+    select(TXNAME, GENEID)
+
+###############################################################
+## Import kallisto abundance
+###############################################################
+
+txi <- tximport(
+
+    files,
+
+    type = "none",
+
+    tx2gene = tx2gene.simple,
+
+    txIn = TRUE,
+
+    txOut = FALSE,
+
+    countsFromAbundance = "no",
+
+    txIdCol = "target_id",
+
+    abundanceCol = "tpm",
+
+    countsCol = "est_counts",
+
+    lengthCol = "eff_length",
+
+    importer = function(x)
+        read_tsv(
+            x,
+            show_col_types = FALSE
+        )
+
+)
+
+###############################################################
+## Gene annotation
+###############################################################
+
+gene.annot <- tx2gene %>%
+
+    select(GENEID, SYMBOL) %>%
+
+    distinct(GENEID, .keep_all = TRUE)
+
+###############################################################
+## Prepare DESeq2 object
+###############################################################
+
+sample.info <- sample.info[
+    colnames(txi$counts),
+]
+
+stopifnot(
+
+    all(
+        colnames(txi$counts) ==
+            rownames(sample.info)
+    )
+
+)
+
+dds <- DESeqDataSetFromTximport(
+
+    txi,
+
+    colData = sample.info,
+
+    design = ~ dox
+
+)
+
+###############################################################
+## Filter low-count genes
+###############################################################
+
+keep <- rowSums(
+
+    counts(dds) >= 10
+
+) >= 3
+
+dds <- dds[keep,]
+
+dim(dds)
+
+###############################################################
+## Run DESeq2
+###############################################################
+
+dds <- DESeq(dds)
+
+resultsNames(dds)
+
+###############################################################
+## Differential expression
+###############################################################
+
+res <- results(
+
+    dds,
+
+    contrast = c(
+        "dox",
+        "Dox",
+        "NoDox"
+    )
+
+)
+
+res <- res[order(res$padj),]
+
+###############################################################
+## Convert to dataframe
+###############################################################
+
+res.df <- as.data.frame(res) %>%
+
+    rownames_to_column("GENEID") %>%
+
+    left_join(
+        gene.annot,
+        by = "GENEID"
+    )
+
+head(res.df)
+
+###############################################################
+## Significant genes
+###############################################################
+
+sig.up <- res.df %>%
+
+    filter(
+        padj < 0.05,
+        log2FoldChange > 1
+    ) %>%
+
+    arrange(padj)
+
+sig.down <- res.df %>%
+
+    filter(
+        padj < 0.05,
+        log2FoldChange < -1
+    ) %>%
+
+    arrange(padj)
+
+cat("Upregulated genes :", nrow(sig.up), "\n")
+
+cat("Downregulated genes :", nrow(sig.down), "\n")
+
+###############################################################
+## Export results
+###############################################################
+
+write.csv(
+
+    res.df,
+
+    "main_dox_vs_main_ALL.csv",
+
+    row.names = FALSE
+
+)
+
+write.csv(
+
+    sig.up,
+
+    "main_dox_vs_main_UP.csv",
+
+    row.names = FALSE
+
+)
+
+write.csv(
+
+    sig.down,
+
+    "main_dox_vs_main_DOWN.csv",
+
+    row.names = FALSE
+
+)
+
+###############################################################
+## Normalized counts
+###############################################################
+
+norm.counts <- counts(
+
+    dds,
+
+    normalized = TRUE
+
+)
+
+norm.counts <- as.data.frame(norm.counts)
+
+norm.counts <- norm.counts %>%
+
+    rownames_to_column("GENEID") %>%
+
+    left_join(
+        gene.annot,
+        by = "GENEID"
+    )
+
+write.csv(
+
+    norm.counts,
+
+    "Normalized_counts.csv",
+
+    row.names = FALSE
+
+)
+
+###############################################################
+## Variance stabilizing transformation
+###############################################################
+
+vsd <- vst(
+    dds,
+    blind = TRUE
+)
+
+saveRDS(
+    vsd,
+    "vsd.rds"
+)
+
+saveRDS(
+    dds,
+    "dds.rds"
+)
+
+cat("\n")
+cat("=========================================\n")
+cat("DESeq2 analysis completed successfully.\n")
+cat("=========================================\n")
+
+### Part2 visualization----------------------------------------------------------------------------------
+library(EnhancedVolcano)
+library(ggplot2)
+library(ggrepel)
+library(pheatmap)
+library(RColorBrewer)
+library(EnhancedVolcano)
+
+###############################################################
+## PCA (PC1 vs PC2)
+###############################################################
+
+pcaData <- plotPCA(
+    vsd,
+    intgroup = c("dox", "replicate"),
+    returnData = TRUE
+)
+
+percentVar <- round(
+    100 * attr(pcaData, "percentVar"),
+    1
+)
+
+p1 <- ggplot(
+    pcaData,
+    aes(
+        PC1,
+        PC2,
+        color = dox,
+        label = name
+    )
+) +
+    geom_point(size = 4) +
+    geom_text_repel(size = 4) +
+    theme_bw(base_size = 14) +
+    xlab(
+        paste0(
+            "PC1 (",
+            percentVar[1],
+            "%)"
+        )
+    ) +
+    ylab(
+        paste0(
+            "PC2 (",
+            percentVar[2],
+            "%)"
+        )
+    ) +
+    ggtitle("PCA: main vs main_dox")
+
+print(p1)
+ggsave(
+    "PCA_PC1_PC2_main.png",
+    p1,
+    width = 7,
+    height = 6,
+    dpi = 300
+)
+###############################################################
+## PCA (PC1 vs PC3)
+###############################################################
+
+pca.obj <- prcomp(
+    t(assay(vsd))
+)
+
+pca.df <- as.data.frame(
+    pca.obj$x
+)
+
+pca.df$sample <- rownames(pca.df)
+
+pca.df$dox <- colData(dds)$dox
+
+var.explained <- round(
+    100 *
+        pca.obj$sdev^2 /
+        sum(pca.obj$sdev^2),
+    1
+)
+
+p2 <- ggplot(
+    pca.df,
+    aes(
+        PC1,
+        PC3,
+        color = dox,
+        label = sample
+    )
+) +
+    geom_point(size = 4) +
+    geom_text_repel(size = 4) +
+    theme_bw(base_size = 14) +
+    xlab(
+        paste0(
+            "PC1 (",
+            var.explained[1],
+            "%)"
+        )
+    ) +
+    ylab(
+        paste0(
+            "PC3 (",
+            var.explained[3],
+            "%)"
+        )
+    ) +
+    ggtitle("PCA: PC1 vs PC3")
+
+print(p2)
+
+ggsave(
+    "PCA_PC1_PC3_main.png",
+    p2,
+    width = 7,
+    height = 6,
+    dpi = 300
+)
+###############################################################
+## Sample-to-sample distance heatmap
+###############################################################
+
+sampleDists <- dist(
+    t(assay(vsd))
+)
+
+sampleDistMatrix <- as.matrix(
+    sampleDists
+)
+
+rownames(sampleDistMatrix) <-
+    colnames(vsd)
+
+colnames(sampleDistMatrix) <-
+    colnames(vsd)
+
+colors <- colorRampPalette(
+    rev(
+        brewer.pal(
+            9,
+            "Blues"
+        )
+    )
+)(255)
+
+png(
+    "Sample_distance_heatmap.png",
+    width = 1800,
+    height = 1600,
+    res = 300
+)
+
+pheatmap(
+    sampleDistMatrix,
+    clustering_distance_rows = sampleDists,
+    clustering_distance_cols = sampleDists,
+    col = colors,
+    fontsize = 12,
+    border_color = NA,
+    main = "Sample-to-sample distance"
+)
+dev.off()
+
+###############################################################
+## MA plot
+###############################################################
+
+png(
+    "MA_plot.png",
+    width = 1800,
+    height = 1600,
+    res = 300
+)
+
+plotMA(
+    res,
+    ylim = c(-6,6),
+    alpha = 0.05,
+    main = "main_dox vs main"
+)
+
+abline(
+    h = c(-1,1),
+    col = "red",
+    lty = 2
+)
+
+dev.off()
+
+###############################################################
+## Volcano plot
+###############################################################
+
+res.volcano <- res.df
+
+res.volcano$padj[
+    is.na(res.volcano$padj)
+] <- 1
+
+res.volcano$SYMBOL[
+    is.na(res.volcano$SYMBOL)
+] <- ""
+
+volcano <- EnhancedVolcano(
+
+    res.volcano,
+
+    lab = res.volcano$SYMBOL,
+
+    x = "log2FoldChange",
+
+    y = "padj",
+
+    title = "main_dox vs main",
+
+    subtitle = NULL,
+
+    pCutoff = 0.05,
+
+    FCcutoff = 1,
+
+    pointSize = 2.5,
+
+    labSize = 4,
+
+    drawConnectors = TRUE,
+
+    boxedLabels = FALSE,
+
+    legendPosition = "right",
+
+    legendLabSize = 12,
+
+    legendIconSize = 4,
+
+    colAlpha = 0.8
+
+)
+
+print(volcano)
+
+ggsave(
+    "Volcano_plot.png",
+    volcano,
+    width = 9,
+    height = 8,
+    dpi = 300
+)
+
+###############################################################
+## Summary
+###############################################################
+
+cat("\n")
+cat("=====================================\n")
+cat("PCA completed\n")
+cat("Sample distance heatmap completed\n")
+cat("MA plot completed\n")
+cat("Volcano plot completed\n")
+cat("=====================================\n")
