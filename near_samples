@@ -1,0 +1,208 @@
+### module load FastQC/0.11.9-Java-11
+
+library(tximport)
+library(DESeq2)
+library(dplyr)
+library(stringr)
+library(readr)
+library(tibble)
+library(tidyr)
+
+## ==================================================================
+## PART A: near vs near_dox (effect of dox within near variant)
+## ==================================================================
+
+kallisto.dir <- "C:/Users/leh/OneDrive - TUNI.fi/Documents/output_kallisto"
+
+all.files <- list.files(
+  path = kallisto.dir,
+  pattern = "abundance.tsv$",
+  recursive = TRUE,
+  full.names = TRUE
+)
+all.sample.names <- basename(dirname(all.files))
+
+## keep only near_1..3 and near_dox_1..3
+keep.idx <- grepl("^near", all.sample.names)
+
+files <- all.files[keep.idx]
+sample.names <- all.sample.names[keep.idx]
+names(files) <- sample.names
+
+stopifnot(all(file.exists(files)))
+length(files)   # should be 6
+files
+
+## sample metadata
+sample.info <- data.frame(sample = sample.names, stringsAsFactors = FALSE)
+sample.info$dox <- ifelse(grepl("_dox_", sample.info$sample), "Dox", "NoDox")
+sample.info$dox <- factor(sample.info$dox, levels = c("NoDox", "Dox"))
+sample.info$replicate <- str_extract(sample.info$sample, "[123]$")
+rownames(sample.info) <- sample.info$sample
+sample.info
+table(sample.info$dox)
+
+## tx2gene
+example <- read_tsv(files[1], show_col_types = FALSE)
+split_ids <- str_split_fixed(example$target_id, "\\|", 9)
+tx2gene <- tibble(
+  TXNAME = example$target_id,
+  GENEID = split_ids[, 2],
+  SYMBOL = split_ids[, 6]
+) %>% distinct()
+tx2gene.simple <- tx2gene %>% dplyr::select(TXNAME, GENEID)
+
+## import
+txi <- tximport(
+  files,
+  type = "none",
+  tx2gene = tx2gene.simple,
+  txIn = TRUE,
+  txOut = FALSE,
+  countsFromAbundance = "no",
+  txIdCol = "target_id",
+  abundanceCol = "tpm",
+  countsCol = "est_counts",
+  lengthCol = "eff_length",
+  importer = function(x) read_tsv(x, show_col_types = FALSE)
+)
+
+gene.annot <- tx2gene %>% dplyr::select(GENEID, SYMBOL) %>% distinct(GENEID, .keep_all = TRUE)
+
+## build dds
+sample.info <- sample.info[colnames(txi$counts), ]
+stopifnot(all(colnames(txi$counts) == rownames(sample.info)))
+
+dds.near <- DESeqDataSetFromTximport(txi, colData = sample.info, design = ~ dox)
+keep <- rowSums(counts(dds.near) >= 10) >= 3
+dds.near <- dds.near[keep, ]
+dds.near <- DESeq(dds.near)
+resultsNames(dds.near)
+
+res.near <- results(dds.near, contrast = c("dox", "Dox", "NoDox"))
+res.near <- res.near[order(res.near$padj), ]
+res.near.df <- as.data.frame(res.near) %>%
+  rownames_to_column("GENEID") %>%
+  left_join(gene.annot, by = "GENEID")
+
+head(res.near.df)
+
+## check the near transgene itself
+res.near.df %>% filter(SYMBOL == "YOUR_NEAR_GENE_NAME")   # replace with actual gene symbol
+
+## significant genes
+sig.up.near   <- res.near.df %>% filter(padj < 0.05, log2FoldChange > 1)  %>% arrange(padj)
+sig.down.near <- res.near.df %>% filter(padj < 0.05, log2FoldChange < -1) %>% arrange(padj)
+nrow(sig.up.near); nrow(sig.down.near)
+
+## PCA check — do near vs near_dox actually separate?
+vsd.near <- vst(dds.near, blind = TRUE)
+pcaData <- plotPCA(vsd.near, intgroup = "dox", returnData = TRUE)
+percentVar <- round(100 * attr(pcaData, "percentVar"))
+ggplot(pcaData, aes(PC1, PC2, color = dox, label = name)) +
+  geom_point(size = 4) +
+  ggrepel::geom_text_repel(size = 3) +
+  xlab(paste0("PC1: ", percentVar[1], "%")) +
+  ylab(paste0("PC2: ", percentVar[2], "%")) +
+  theme_bw() + ggtitle("PCA: near vs near_dox")
+
+write.csv(res.near.df, "near_dox_vs_near_ALL.csv", row.names = FALSE)
+
+
+## ==================================================================
+## PART B: near_dox vs luc_dox (near variant effect vs control)
+## ==================================================================
+
+keep.idx2 <- grepl("^near_dox", all.sample.names) | grepl("^luc_dox", all.sample.names)
+
+files2 <- all.files[keep.idx2]
+sample.names2 <- all.sample.names[keep.idx2]
+names(files2) <- sample.names2
+
+sample.info2 <- data.frame(sample = sample.names2, stringsAsFactors = FALSE)
+sample.info2$variant <- ifelse(grepl("^near", sample.info2$sample), "near", "luc")
+sample.info2$variant <- factor(sample.info2$variant, levels = c("luc", "near"))
+rownames(sample.info2) <- sample.info2$sample
+table(sample.info2$variant)
+
+txi2 <- tximport(
+  files2,
+  type = "none",
+  tx2gene = tx2gene.simple,
+  txIn = TRUE,
+  txOut = FALSE,
+  countsFromAbundance = "no",
+  txIdCol = "target_id",
+  abundanceCol = "tpm",
+  countsCol = "est_counts",
+  lengthCol = "eff_length",
+  importer = function(x) read_tsv(x, show_col_types = FALSE)
+)
+
+sample.info2 <- sample.info2[colnames(txi2$counts), ]
+stopifnot(all(colnames(txi2$counts) == rownames(sample.info2)))
+
+dds.near.vs.luc <- DESeqDataSetFromTximport(txi2, colData = sample.info2, design = ~ variant)
+keep2 <- rowSums(counts(dds.near.vs.luc) >= 10) >= 3
+dds.near.vs.luc <- dds.near.vs.luc[keep2, ]
+dds.near.vs.luc <- DESeq(dds.near.vs.luc)
+resultsNames(dds.near.vs.luc)
+
+res.near.vs.luc <- results(dds.near.vs.luc, contrast = c("variant", "near", "luc"))
+res.near.vs.luc <- res.near.vs.luc[order(res.near.vs.luc$padj), ]
+res.near.vs.luc.df <- as.data.frame(res.near.vs.luc) %>%
+  rownames_to_column("GENEID") %>%
+  left_join(gene.annot, by = "GENEID")
+
+head(res.near.vs.luc.df)
+
+sig.up2   <- res.near.vs.luc.df %>% filter(padj < 0.05, log2FoldChange > 1)  %>% arrange(padj)
+sig.down2 <- res.near.vs.luc.df %>% filter(padj < 0.05, log2FoldChange < -1) %>% arrange(padj)
+nrow(sig.up2); nrow(sig.down2)
+
+write.csv(res.near.vs.luc.df, "near_dox_vs_luc_dox_ALL.csv", row.names = FALSE)
+
+### PCA plot--------------------------------------------------------------------------------------------------
+library(ggplot2)
+library(ggrepel)
+
+## ----------------------------------------------------------------
+## Variance-stabilizing transform (better for PCA than raw/normalized counts)
+## ----------------------------------------------------------------
+vsd.near <- vst(dds.near, blind = TRUE)
+
+## ----------------------------------------------------------------
+## PCA: PC1 vs PC2
+## ----------------------------------------------------------------
+pcaData <- plotPCA(vsd.near, intgroup = c("dox", "replicate"), returnData = TRUE)
+percentVar <- round(100 * attr(pcaData, "percentVar"))
+
+ggplot(pcaData, aes(PC1, PC2, color = dox, label = name)) +
+  geom_point(size = 4) +
+  geom_text_repel(size = 3, max.overlaps = 20) +
+  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
+  theme_bw(base_size = 13) +
+  ggtitle("PCA: near vs near_dox") +
+  scale_color_manual(values = c("NoDox" = "steelblue", "Dox" = "firebrick"))
+
+ggsave("PCA_near_vs_near_dox.png", width = 7, height = 6, dpi = 300)
+
+## ----------------------------------------------------------------
+## Optional: check more PCs if PC1/PC2 don't separate by dox
+## (sometimes the condition effect hides on PC3+ if another factor,
+## e.g. batch or replicate, dominates PC1/PC2)
+## ----------------------------------------------------------------
+pca.obj <- prcomp(t(assay(vsd.near)))
+pca.df  <- as.data.frame(pca.obj$x)
+pca.df$sample <- rownames(pca.df)
+pca.df$dox    <- colData(dds.near)$dox
+
+var.explained <- round(100 * pca.obj$sdev^2 / sum(pca.obj$sdev^2), 1)
+
+ggplot(pca.df, aes(PC1, PC3, color = dox, label = sample)) +
+  geom_point(size = 4) +
+  geom_text_repel(size = 3) +
+  xlab(paste0("PC1: ", var.explained[1], "%")) +
+  ylab(paste0("PC3: ", var.explained[3], "%")) +
+  theme_bw(base_size = 13) +
