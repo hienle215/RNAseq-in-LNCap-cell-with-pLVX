@@ -1,0 +1,418 @@
+#### continuing from part 01##############################################
+main <- run_DESeq_group("main")
+far <- run_DESeq_group("far")
+near <- run_DESeq_group("near")
+luc <- run_DESeq_group("luc")
+
+####################### PART 2B ##############################################################################
+    ###########################################################
+    ## Variance stabilizing transformation
+    ###########################################################
+
+    vsd <- vst(dds, blind = FALSE)
+
+    ###########################################################
+    ## PCA
+    ###########################################################
+
+    pcaData <- plotPCA(
+
+        vsd,
+
+        intgroup = "dox",
+
+        returnData = TRUE
+
+    )
+
+    percentVar <- round(
+
+        100 *
+        attr(pcaData, "percentVar")
+
+    )
+
+    ###########################################################
+    ## PC1 vs PC2
+    ###########################################################
+
+    p1 <- ggplot(
+
+        pcaData,
+
+        aes(
+
+            PC1,
+
+            PC2,
+
+            color = dox,
+
+            label = rownames(pcaData)
+
+        )
+
+    ) +
+
+        geom_point(size = 4) +
+
+        geom_text_repel(size = 4) +
+
+        xlab(
+
+            paste0(
+
+                "PC1: ",
+
+                percentVar[1],
+
+                "%"
+
+            )
+
+        ) +
+
+        ylab(
+
+            paste0(
+
+                "PC2: ",
+
+                percentVar[2],
+
+                "%"
+
+            )
+
+        ) +
+
+        ggtitle(
+
+            paste(
+
+                group.name,
+
+                "PC1 vs PC2"
+
+            )
+
+        ) +
+
+        theme_bw()
+
+    ggsave(
+
+        file.path(
+
+            outdir,
+
+            paste0(
+
+                group.name,
+
+                "_PCA_PC1_PC2.png"
+
+            )
+
+        ),
+
+        p1,
+
+        width = 7,
+
+        height = 6,
+
+        dpi = 300
+
+    )
+
+    ###########################################################
+    ## PCA PC1 vs PC3
+    ###########################################################
+
+    pca.mat <- prcomp(
+
+        t(
+
+            assay(vsd)
+
+        )
+
+    )
+
+    pc.df <- as.data.frame(
+
+        pca.mat$x
+
+    )
+
+    pc.df$dox <- sample.sub$dox
+
+    pc.df$sample <- rownames(pc.df)
+
+    var.exp <- round(
+
+        100 *
+
+        pca.mat$sdev^2 /
+
+        sum(
+
+            pca.mat$sdev^2
+
+        ),
+
+        1
+
+    )
+
+    p2 <- ggplot(
+
+        pc.df,
+
+        aes(
+
+            PC1,
+
+            PC3,
+
+            color = dox,
+
+            label = sample
+
+        )
+
+    ) +
+
+        geom_point(size = 4) +
+
+        geom_text_repel(size = 4) +
+
+        xlab(
+
+            paste0(
+
+                "PC1: ",
+
+                var.exp[1],
+
+                "%"
+
+            )
+
+        ) +
+
+        ylab(
+
+            paste0(
+
+                "PC3: ",
+
+                var.exp[3],
+
+                "%"
+
+            )
+
+        ) +
+
+        ggtitle(
+
+            paste(
+
+                group.name,
+
+                "PC1 vs PC3"
+
+            )
+
+        ) +
+
+        theme_bw()
+
+    ggsave(
+
+        file.path(
+
+            outdir,
+
+            paste0(
+
+                group.name,
+
+                "_PCA_PC1_PC3.png"
+
+            )
+
+        ),
+
+        p2,
+
+        width = 7,
+
+        height = 6,
+
+        dpi = 300
+
+    )
+
+    ###########################################################
+    ## Sample distance heatmap
+    ###########################################################
+
+    sampleDists <- dist(
+
+        t(
+
+            assay(vsd)
+
+        )
+
+    )
+
+    sampleDistMatrix <- as.matrix(
+
+        sampleDists
+
+    )
+
+    rownames(
+
+        sampleDistMatrix
+
+    ) <- rownames(sample.sub)
+
+    colnames(
+
+        sampleDistMatrix
+
+    ) <- rownames(sample.sub)
+
+    png(
+
+        file.path(
+
+            outdir,
+
+            paste0(
+
+                group.name,
+
+                "_SampleDistanceHeatmap.png"
+
+            )
+
+        ),
+
+        width = 1000,
+
+        height = 900,
+
+        res = 150
+
+    )
+
+    pheatmap(
+
+        sampleDistMatrix,
+
+        clustering_distance_rows = sampleDists,
+
+        clustering_distance_cols = sampleDists,
+
+        main = paste(
+
+            group.name,
+
+            "Sample distances"
+
+        )
+
+    )
+
+    dev.off()
+
+    ###########################################################
+    ## MA plot
+    ###########################################################
+
+    png(
+
+        file.path(
+
+            outdir,
+
+            paste0(
+
+                group.name,
+
+                "_MAplot.png"
+
+            )
+
+        ),
+
+        width = 1000,
+
+        height = 900,
+
+        res = 150
+
+    )
+
+    plotMA(
+
+        res,
+
+        ylim = c(
+
+            -6,
+
+            6
+
+        ),
+
+        main = paste(
+
+            group.name,
+
+            "Dox vs NoDox"
+
+        )
+
+    )
+
+    dev.off()
+
+#################################################################################################################################################
+################## VENN PLOT ####################################################################################################################
+
+main <- run_DESeq_group("main")
+far  <- run_DESeq_group("far")
+near <- run_DESeq_group("near")
+luc  <- run_DESeq_group("luc")
+main.up <- read.csv("main_results/main_UP.csv")
+far.up  <- read.csv("far_results/far_UP.csv")
+near.up <- read.csv("near_results/near_UP.csv")
+luc.up  <- read.csv("luc_results/luc_UP.csv")
+
+main.down <- read.csv("main_results/main_DOWN.csv")
+far.down  <- read.csv("far_results/far_DOWN.csv")
+near.down <- read.csv("near_results/near_DOWN.csv")
+luc.down  <- read.csv("luc_results/luc_DOWN.csv")
+
+library(VennDiagram)
+
+venn.diagram(  x = list(
+        Main = main.up$SYMBOL,
+        Far  = far.up$SYMBOL,
+        Near = near.up$SYMBOL,
+        Luc  = luc.up$SYMBOL ),    filename = "UP_genes_venn.png")
+
+venn.diagram(
+    x = list(
+        Main = main.down$SYMBOL,
+        Far  = far.down$SYMBOL,
+        Near = near.down$SYMBOL,
+        Luc  = luc.down$SYMBOL ),    filename = "DOWN_genes_venn.png")
+
