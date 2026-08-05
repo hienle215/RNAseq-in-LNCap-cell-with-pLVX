@@ -1,0 +1,281 @@
+rm(list = ls())
+
+###############################################################
+## Load libraries
+###############################################################
+
+library(tximport)
+library(readr)
+library(dplyr)
+library(stringr)
+library(tibble)
+library(tidyr)
+
+###############################################################
+## Set kallisto directory
+###############################################################
+
+kallisto.dir <- "C:/Users/leh/OneDrive - TUNI.fi/Documents/output_kallisto"
+
+###############################################################
+## Find all abundance.tsv files
+###############################################################
+
+all.files <- list.files(
+    path = kallisto.dir,
+    pattern = "abundance.tsv$",
+    recursive = TRUE,
+    full.names = TRUE
+)
+
+###############################################################
+## Sample names
+###############################################################
+
+sample.names <- basename(dirname(all.files))
+
+names(all.files) <- sample.names
+
+cat("Number of samples:", length(all.files), "\n")
+
+print(sample.names)
+
+stopifnot(length(all.files) == 24)
+
+stopifnot(all(file.exists(all.files)))
+
+###############################################################
+## Build sample information
+###############################################################
+
+sample.info <- data.frame(
+    sample = sample.names,
+    stringsAsFactors = FALSE
+)
+
+###############################################################
+## Dox treatment
+###############################################################
+
+sample.info$dox <- ifelse(
+    grepl("_dox_", sample.info$sample),
+    "Dox",
+    "NoDox"
+)
+
+###############################################################
+## Group
+###############################################################
+
+sample.info$group <- case_when(
+
+    grepl("^far", sample.info$sample)  ~ "far",
+
+    grepl("^near", sample.info$sample) ~ "near",
+
+    grepl("^main", sample.info$sample) ~ "main",
+
+    grepl("^luc", sample.info$sample)  ~ "luc",
+
+    TRUE ~ NA_character_
+
+)
+
+###############################################################
+## Replicate
+###############################################################
+
+sample.info$replicate <- str_extract(
+    sample.info$sample,
+    "[123]$"
+)
+
+###############################################################
+## Convert to factors
+###############################################################
+
+sample.info$group <- factor(
+    sample.info$group,
+    levels = c(
+        "luc",
+        "main",
+        "near",
+        "far"
+    )
+)
+
+sample.info$dox <- factor(
+    sample.info$dox,
+    levels = c(
+        "NoDox",
+        "Dox"
+    )
+)
+
+sample.info$replicate <- factor(sample.info$replicate)
+
+rownames(sample.info) <- sample.info$sample
+
+###############################################################
+## Check metadata
+###############################################################
+
+print(sample.info)
+
+table(sample.info$group)
+
+table(sample.info$dox)
+
+table(sample.info$group,
+      sample.info$dox)
+
+###############################################################
+## Build tx2gene
+###############################################################
+
+example <- read_tsv(
+    all.files[1],
+    show_col_types = FALSE
+)
+
+head(example)
+
+###############################################################
+## Split transcript annotation
+###############################################################
+
+split.ids <- str_split_fixed(
+    example$target_id,
+    "\\|",
+    9
+)
+
+###############################################################
+## tx2gene
+###############################################################
+
+tx2gene <- tibble(
+
+    TXNAME = example$target_id,
+
+    GENEID = split.ids[,2],
+
+    SYMBOL = split.ids[,6]
+
+)
+
+tx2gene <- distinct(tx2gene)
+
+###############################################################
+## tximport needs only TXNAME + GENEID
+###############################################################
+
+tx2gene.simple <- tx2gene %>%
+
+    select(
+        TXNAME,
+        GENEID
+    )
+
+###############################################################
+## Gene annotation
+###############################################################
+
+gene.annot <- tx2gene %>%
+
+    select(
+        GENEID,
+        SYMBOL
+    ) %>%
+
+    distinct(
+        GENEID,
+        .keep_all = TRUE
+    )
+
+###############################################################
+## Import kallisto
+###############################################################
+
+txi <- tximport(
+
+    all.files,
+
+    type = "none",
+
+    tx2gene = tx2gene.simple,
+
+    txIn = TRUE,
+
+    txOut = FALSE,
+
+    countsFromAbundance = "no",
+
+    txIdCol = "target_id",
+
+    abundanceCol = "tpm",
+
+    countsCol = "est_counts",
+
+    lengthCol = "eff_length",
+
+    importer = function(x)
+
+        read_tsv(
+            x,
+            show_col_types = FALSE
+        )
+
+)
+
+###############################################################
+## Check imported data
+###############################################################
+
+dim(txi$counts)
+
+dim(txi$abundance)
+
+dim(txi$length)
+
+head(colnames(txi$counts))
+
+###############################################################
+## Ensure sample order matches metadata
+###############################################################
+
+sample.info <- sample.info[
+    colnames(txi$counts),
+]
+
+stopifnot(
+
+    all(
+        rownames(sample.info) ==
+        colnames(txi$counts)
+    )
+
+)
+###############################################################
+## Save everything
+###############################################################
+
+save(
+
+    txi,
+
+    sample.info,
+
+    gene.annot,
+
+    tx2gene,
+
+    tx2gene.simple,
+
+    file = "RNAseq_import.RData"
+
+)
+
+cat("\nImport completed successfully.\n")
+
+cat("Objects saved to RNAseq_import.RData\n")
