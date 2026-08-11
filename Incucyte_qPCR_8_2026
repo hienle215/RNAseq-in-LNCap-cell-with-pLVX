@@ -1,0 +1,265 @@
+############################ Incucyte 1 26.7.2026 ######################################################
+p <- ggplot(
+  summary_data,
+  aes(x = group, y = mean)
+) +
+  geom_col(
+    width = 0.7,
+    fill = "grey70",
+    color = "black"
+  ) +
+  geom_errorbar(
+    aes(
+      ymin = mean - sd,
+      ymax = mean + sd
+    ),
+    width = 0.2,
+    linewidth = 0.7
+  ) +
+  geom_jitter(
+    data = data_long,
+    aes(x = group, y = value),
+    width = 0.08,
+    size = 2.5,
+    shape = 21,
+    fill = "white",
+    color = "black"
+  ) +
+  stat_pvalue_manual(
+    p_values,
+    label = "label",
+    xmin = "group1",
+    xmax = "group2",
+    y.position = "y.position",
+    tip.length = 0.01,
+    bracket.size = 0.6,
+    size = 4
+  ) +
+  scale_y_log10() +
+  labs(
+    x = NULL,
+    y = "Expression (log10 scale)",
+    title = "Effect of Dox induction"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    plot.title = element_text(
+      hjust = 0.5,
+      face = "bold"
+    ),
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1
+    )
+  )
+
+p
+
+################################################# Incucyte 2 26.7.2026##########################################################################
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(ggpubr)
+
+# -----------------------------
+# 1. Enter data
+# -----------------------------
+
+data <- data.frame(
+  group = c(
+    "luc", "luc-Dox",
+    "main", "main-Dox",
+    "near", "near-Dox"
+  ),
+  rep1 = c(
+    0.53, 0.78,
+    9.34, 139.69,
+    26.02, 120.63
+  ),
+  rep2 = c(
+    1.18, 0.73,
+    7.94, 109.14,
+    31.34, 148.69
+  ),
+  rep3 = c(
+    1.62, 1.76,
+    18.46, 136.44,
+    44.95, 113.14
+  )
+)
+
+# -----------------------------
+# 2. Convert to long format
+# -----------------------------
+
+data_long <- data %>%
+  pivot_longer(
+    cols = starts_with("rep"),
+    names_to = "replicate",
+    values_to = "value"
+  )
+
+data_long$group <- factor(
+  data_long$group,
+  levels = c(
+    "luc", "luc-Dox",
+    "main", "main-Dox",
+    "near", "near-Dox"
+  )
+)
+
+# -----------------------------
+# 3. Calculate mean and SD
+# -----------------------------
+
+summary_data <- data_long %>%
+  group_by(group) %>%
+  summarise(
+    mean = mean(value),
+    sd = sd(value),
+    .groups = "drop"
+  )
+
+print(summary_data)
+
+# -----------------------------
+# 4. Pairwise t-tests
+# -----------------------------
+
+p_luc <- t.test(
+  value ~ group,
+  data = filter(
+    data_long,
+    group %in% c("luc", "luc-Dox")
+  )
+)$p.value
+
+p_main <- t.test(
+  value ~ group,
+  data = filter(
+    data_long,
+    group %in% c("main", "main-Dox")
+  )
+)$p.value
+
+p_near <- t.test(
+  value ~ group,
+  data = filter(
+    data_long,
+    group %in% c("near", "near-Dox")
+  )
+)$p.value
+
+# Print p-values
+p_luc
+p_main
+p_near
+
+# -----------------------------
+# 5. P-value table
+# -----------------------------
+
+p_values <- data.frame(
+  group1 = c(
+    "luc",
+    "main",
+    "near"
+  ),
+  group2 = c(
+    "luc-Dox",
+    "main-Dox",
+    "near-Dox"
+  ),
+  p = c(
+    p_luc,
+    p_main,
+    p_near
+  ),
+  y.position = c(
+    4,
+    165,
+    165
+  )
+)
+
+p_values$label <- paste0(
+  "p = ",
+  format.pval(
+    p_values$p,
+    digits = 3,
+    eps = 0.001
+  )
+)
+
+print(p_values)
+
+# -----------------------------
+# 6. Plot
+# -----------------------------
+
+p <- ggplot(
+  summary_data,
+  aes(x = group, y = mean)
+) +
+
+  # Mean bars
+  geom_col(
+    width = 0.7,
+    fill = "grey70",
+    color = "black"
+  ) +
+
+  # SD error bars
+  geom_errorbar(
+    aes(
+      ymin = mean - sd,
+      ymax = mean + sd
+    ),
+    width = 0.2,
+    linewidth = 0.7
+  ) +
+
+  # Individual replicates
+  geom_jitter(
+    data = data_long,
+    aes(x = group, y = value),
+    width = 0.08,
+    size = 2.5,
+    shape = 21,
+    fill = "white",
+    color = "black",
+    stroke = 0.8
+  ) +
+
+  # P-value brackets
+  stat_pvalue_manual(
+    p_values,
+    label = "label",
+    xmin = "group1",
+    xmax = "group2",
+    y.position = "y.position",
+    tip.length = 0.01,
+    bracket.size = 0.6,
+    size = 4
+  ) +
+
+  labs(
+    x = NULL,
+    y = "Expression",
+    title = "Effect of Dox induction"
+  ) +
+
+  theme_classic(base_size = 14) +
+
+  theme(
+    plot.title = element_text(
+      hjust = 0.5,
+      face = "bold"
+    ),
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1
+    )
+  )
+
+p
