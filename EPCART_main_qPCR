@@ -1,0 +1,210 @@
+# the data for barplot in calculating fold change of EPCART_main cell line after doxycyline induction
+## the data is was made in 7.2026 and presented in 12.8.2026
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(ggpubr)
+
+# -----------------------------
+# 1. Enter data
+# -----------------------------
+
+data <- data.frame(
+  group = c(
+    "luc", "luc-Dox",
+    "main-1", "main-1-Dox",
+    "main-2", "main-2-Dox"
+  ),
+  rep1 = c(
+    2.45, 2.98,
+    32.44, 194.31,
+    36.72, 192.0525
+  ),
+  rep2 = c(
+    1.73, 0.44,
+    20.34, 154.8103,
+    31.48, 186.334
+  ),
+  rep3 = c(
+    0.24, 0.75,
+    21.37, 155.02,
+    18.02, 212.8137
+  )
+)
+
+# -----------------------------
+# 2. Convert to long format
+# -----------------------------
+
+data_long <- data %>%
+  pivot_longer(
+    cols = starts_with("rep"),
+    names_to = "replicate",
+    values_to = "value"
+  )
+
+data_long$group <- factor(
+  data_long$group,
+  levels = c(
+    "luc", "luc-Dox",
+    "main-1", "main-1-Dox",
+    "main-2", "main-2-Dox"
+  )
+)
+
+# -----------------------------
+# 3. Mean ± SD
+# -----------------------------
+
+summary_data <- data_long %>%
+  group_by(group) %>%
+  summarise(
+    mean = mean(value),
+    sd = sd(value),
+    .groups = "drop"
+  )
+
+# -----------------------------
+# 4. Pairwise t-tests
+# -----------------------------
+
+p_luc <- t.test(
+  value ~ group,
+  data = filter(
+    data_long,
+    group %in% c("luc", "luc-Dox")
+  )
+)$p.value
+
+p_main1 <- t.test(
+  value ~ group,
+  data = filter(
+    data_long,
+    group %in% c("main-1", "main-1-Dox")
+  )
+)$p.value
+
+p_main2 <- t.test(
+  value ~ group,
+  data = filter(
+    data_long,
+    group %in% c("main-2", "main-2-Dox")
+  )
+)$p.value
+
+# Print p-values
+p_luc
+p_main1
+p_main2
+
+# -----------------------------
+# 5. P-value table
+# -----------------------------
+
+p_values <- data.frame(
+  group1 = c(
+    "luc",
+    "main-1",
+    "main-2"
+  ),
+  group2 = c(
+    "luc-Dox",
+    "main-1-Dox",
+    "main-2-Dox"
+  ),
+  p = c(
+    p_luc,
+    p_main1,
+    p_main2
+  ),
+  y.position = c(
+    8,
+    235,
+    260
+  )
+)
+
+p_values$label <- paste0(
+  "p = ",
+  format.pval(
+    p_values$p,
+    digits = 3,
+    eps = 0.001
+  )
+)
+
+# -----------------------------
+# 6. Plot
+# -----------------------------
+
+p <- ggplot(
+  summary_data,
+  aes(x = group, y = mean)
+) +
+
+  # Mean bars
+  geom_col(
+    width = 0.7,
+    fill = "grey70",
+    color = "black"
+  ) +
+
+  # SD error bars
+  geom_errorbar(
+    aes(
+      ymin = mean - sd,
+      ymax = mean + sd
+    ),
+    width = 0.2,
+    linewidth = 0.7
+  ) +
+
+  # Individual replicates
+  geom_jitter(
+    data = data_long,
+    aes(x = group, y = value),
+    width = 0.08,
+    size = 2.5,
+    shape = 21,
+    fill = "white",
+    color = "black",
+    stroke = 0.8
+  ) +
+
+  # P-value brackets
+  stat_pvalue_manual(
+    p_values,
+    label = "label",
+    xmin = "group1",
+    xmax = "group2",
+    y.position = "y.position",
+    tip.length = 0.01,
+    bracket.size = 0.6,
+    size = 4
+  ) +
+
+  labs(
+    x = NULL,
+    y = "Expression",
+    title = "Effect of Dox induction"
+  ) +
+
+  theme_classic(base_size = 14) +
+
+  theme(
+    plot.title = element_text(
+      hjust = 0.5,
+      face = "bold"
+    ),
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1
+    )
+  )
+
+p
+
+library(ggpubr)
+setwd("C:\\Users\\leh\\OneDrive - TUNI.fi\\Desktop\\lncRNA_prostate_cancer\\RT-PCR\\results\\2026_7_03_EPCART_virus_newMAIN")
+ggexport(p,filename = "foldchange_EPCART_main_08_2026.tiff", width = 2000,   height = 1400,  res = 300)
