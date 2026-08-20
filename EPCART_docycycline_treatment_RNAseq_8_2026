@@ -447,216 +447,329 @@ length(near.up)
 length(far.up)
 
 
-###############################################################
-## Venn diagram - UPREGULATED
-###############################################################
+#####################################################################################################################################
+# keep only protein-coding genes
+#####################################################################################################################################
 
+library(rtracklayer)
+gtf <- import("gencode.v48.annotation.gtf.gz")
+head(as.data.frame(gtf))
+library(dplyr)
+gene_annotation <- as.data.frame(gtf) %>%
+  dplyr::filter(type == "gene") %>%
+  dplyr::select(gene_id, gene_name, gene_type) %>%
+  dplyr::distinct()
+main.annotated <- main.sig %>%
+  dplyr::left_join(gene_annotation, by = c("GENEID" = "gene_id"))
+
+near.annotated <- near.sig %>%
+  dplyr::left_join(gene_annotation, by = c("GENEID" = "gene_id"))
+
+far.annotated <- far.sig %>%
+  dplyr::left_join(gene_annotation, by = c("GENEID" = "gene_id"))
+table(main.annotated$gene_type, useNA = "ifany")
+
+# Extract only UPREGULATED protein-coding genes
+main.up.protein <- main.annotated %>%
+  dplyr::filter(
+    log2FoldChange >= 1,
+    padj <= 0.05,
+    gene_type == "protein_coding"
+  ) %>%
+  dplyr::pull(gene_name) %>%
+  unique()
+
+near.up.protein <- near.annotated %>%
+  dplyr::filter(
+    log2FoldChange >= 1,
+    padj <= 0.05,
+    gene_type == "protein_coding"
+  ) %>%
+  dplyr::pull(gene_name) %>%
+  unique()
+
+far.up.protein <- far.annotated %>%
+  dplyr::filter(
+    log2FoldChange >= 1,
+    padj <= 0.05,
+    gene_type == "protein_coding"
+  ) %>%
+  dplyr::pull(gene_name) %>%
+  unique()
+
+length(main.up.protein)
+length(near.up.protein)
+length(far.up.protein)
+
+library(VennDiagram)
 venn.up <- venn.diagram(
-    x = list(
-        Main = main.up,
-        Near = near.up,
-        Far = far.up
-    ),
+  x = list(
+    Main = main.up.protein,
+    Near = near.up.protein,
+    Far  = far.up.protein
+  ),
 
-    filename = NULL,
+  filename = NULL,
 
-    fill = c(
-        "#9ECAE1",  # soft blue
-        "#FDD0A2",  # soft orange
-        "#A1D99B"   # soft green
-    ),
+  fill = c(
+    "#9ECAE1",  # soft blue
+    "#FDD0A2",  # soft orange
+    "#A1D99B"   # soft green
+  ),
 
-    alpha = 0.5,
+  alpha = 0.5,
 
-    cex = 1.5,
-    cat.cex = 1.5,
+  cex = 1.5,
+  cat.cex = 1.5,
 
-    main = "Upregulated genes",
-    main.cex = 1.5,
+  main = "Upregulated protein-coding genes",
+  main.cex = 1.5,
 
-    fontfamily = "Arial",
-    cat.fontfamily = "Arial"
+  fontfamily = "Arial",
+  cat.fontfamily = "Arial"
 )
 
 grid::grid.newpage()
 grid::grid.draw(venn.up)
 
-######################################## 01.Venn plot for down regulation of gene ######################################################
-###############################################################
-## DOWNREGULATED GENES
-## log2FC <= -1 & padj <= 0.05
-###############################################################
+shared.protein.up <- Reduce(
+  intersect,
+    list(
+    main.up.protein,
+    near.up.protein,
+    far.up.protein
+  ))
+shared.protein.up
 
-main.down <- main.sig %>%
-    filter(log2FoldChange <= -1) %>%
-    filter(!is.na(SYMBOL)) %>%
-    pull(SYMBOL) %>%
-    unique()
+# Extract only DOWNREGULATED protein-coding genes
+main.down.protein <- main.annotated %>%
+  dplyr::filter(
+    log2FoldChange <= -1,
+    padj <= 0.05,
+    gene_type == "protein_coding"
+  ) %>%
+  dplyr::pull(gene_name) %>%
+  unique()
 
-near.down <- near.sig %>%
-    filter(log2FoldChange <= -1) %>%
-    filter(!is.na(SYMBOL)) %>%
-    pull(SYMBOL) %>%
-    unique()
+near.down.protein <- near.annotated %>%
+  dplyr::filter(
+    log2FoldChange <= -1,
+    padj <= 0.05,
+    gene_type == "protein_coding"
+  ) %>%
+  dplyr::pull(gene_name) %>%
+  unique()
 
-far.down <- far.sig %>%
-    filter(log2FoldChange <= -1) %>%
-    filter(!is.na(SYMBOL)) %>%
-    pull(SYMBOL) %>%
-    unique()
+far.down.protein <- far.annotated %>%
+  dplyr::filter(
+    log2FoldChange <= -1,
+    padj <= 0.05,
+    gene_type == "protein_coding"
+  ) %>%
+  dplyr::pull(gene_name) %>%
+  unique()
 
-
-###############################################################
-## Check numbers
-###############################################################
-
-length(main.down)
-length(near.down)
-length(far.down)
-
-
-###############################################################
-## Venn diagram - DOWNREGULATED
-###############################################################
+length(main.down.protein)
+length(near.down.protein)
+length(far.down.protein)
 
 venn.down <- venn.diagram(
-    x = list(
-        Main = main.down,
-        Near = near.down,
-        Far = far.down
-    ),
+  x = list(
+    Main = main.down.protein,
+    Near = near.down.protein,
+    Far  = far.down.protein
+  ),
 
-    filename = NULL,
+  filename = NULL,
 
-    fill = c(
-        "#9ECAE1",  # soft blue - Main
-        "#FDD0A2",  # soft orange - Near
-        "#A1D99B"   # soft green - Far
-    ),
+  fill = c(
+    "#9ECAE1",  # soft blue
+    "#FDD0A2",  # soft orange
+    "#A1D99B"   # soft green
+  ),
 
-    alpha = 0.5,
+  alpha = 0.5,
 
-    cex = 1.5,
-    cat.cex = 1.5,
+  cex = 1.5,
+  cat.cex = 1.5,
 
-    main = "Downregulated genes",
-    main.cex = 1.5,
+  main = "Downregulated protein-coding genes",
+  main.cex = 1.5,
 
-    fontfamily = "Arial",
-    cat.fontfamily = "Arial"
+  fontfamily = "Arial",
+  cat.fontfamily = "Arial"
 )
 
 grid::grid.newpage()
 grid::grid.draw(venn.down)
+shared.protein.down <- Reduce(
+  intersect,
+  list(
+    main.down.protein,
+    near.down.protein,
+    far.down.protein
+  )
+)
+shared.protein.down
 
-######################################### 03.heatmap of shared gene############################################################
-############# creat up and down regulation ##################################
-# UP-regulated genes
-main.up <- main.sig %>%
-    filter(log2FoldChange >= 1) %>%
-    filter(!is.na(SYMBOL)) %>%
-    pull(SYMBOL) %>%
-    unique()
-
-near.up <- near.sig %>%
-    filter(log2FoldChange >= 1) %>%
-    filter(!is.na(SYMBOL)) %>%
-    pull(SYMBOL) %>%
-    unique()
-
-far.up <- far.sig %>%
-    filter(log2FoldChange >= 1) %>%
-    filter(!is.na(SYMBOL)) %>%
-    pull(SYMBOL) %>%
-    unique()
-
-
-# DOWN-regulated genes
-main.down <- main.sig %>%
-    filter(log2FoldChange <= -1) %>%
-    filter(!is.na(SYMBOL)) %>%
-    pull(SYMBOL) %>%
-    unique()
-
-near.down <- near.sig %>%
-    filter(log2FoldChange <= -1) %>%
-    filter(!is.na(SYMBOL)) %>%
-    pull(SYMBOL) %>%
-    unique()
-
-far.down <- far.sig %>%
-    filter(log2FoldChange <= -1) %>%
-    filter(!is.na(SYMBOL)) %>%
-    pull(SYMBOL) %>%
-    unique()
-######################### finding the shared genes###################################
-shared.up <- Reduce(
-    intersect,
-    list(main.up, near.up, far.up)
+####################################################################################################################
+### heatmap of protein-coding share the groups
+ordered.genes <- c(
+    shared.protein.up,
+    shared.protein.down
 )
 
-shared.down <- Reduce(
-    intersect,
-    list(main.down, near.down, far.down)
+fc.mat <- as.matrix(
+    fc.data[, c("Main", "Near", "Far")]
 )
-shared.up
-shared.down
 
-length(shared.up)
-length(shared.down)
-
-############### Make the log fold change for heatmap##################################
-shared.genes <- c(shared.up, shared.down)
-main.fc <- main.sig %>%
-    filter(SYMBOL %in% shared.genes) %>%
-    select(SYMBOL, log2FoldChange) %>%
-    distinct(SYMBOL, .keep_all = TRUE)
-
-near.fc <- near.sig %>%
-    filter(SYMBOL %in% shared.genes) %>%
-    select(SYMBOL, log2FoldChange) %>%
-    distinct(SYMBOL, .keep_all = TRUE)
-
-far.fc <- far.sig %>%
-    filter(SYMBOL %in% shared.genes) %>%
-    select(SYMBOL, log2FoldChange) %>%
-    distinct(SYMBOL, .keep_all = TRUE)
-fc.data <- main.fc %>%
-    rename(Main = log2FoldChange) %>%
-    full_join(
-        near.fc %>% rename(Near = log2FoldChange),
-        by = "SYMBOL"
-    ) %>%
-    full_join(
-        far.fc %>% rename(Far = log2FoldChange),
-        by = "SYMBOL"
-    ) # combine the data
-head(fc.data)
-
-library(pheatmap)
-fc.mat <- as.matrix(fc.data[, c("Main", "Near", "Far")])
 rownames(fc.mat) <- fc.data$SYMBOL
-# UP genes first, DOWN genes second
-ordered.genes <- c(shared.up, shared.down)
+
 fc.mat <- fc.mat[ordered.genes, ]
-heatmap = pheatmap(
+
+heatmap <- pheatmap(
     fc.mat,
+
     scale = "none",
-    cluster_rows = TRUE,
+
+    cluster_rows = FALSE,
     cluster_cols = FALSE,
+
     border_color = NA,
+
     fontsize_row = 8,
     fontsize_col = 12,
-    main = "Shared differentially expressed genes",
-    
-    # Strong blue → white → strong red
+
+    main = "Shared differentially expressed protein-coding genes",
+
     color = colorRampPalette(
         c("royalblue3", "white", "red3")
     )(100),
-    
-    # Symmetric scale around zero
-    breaks = seq(-4, 4, length.out = 101)
+
+    gaps_row = length(shared.protein.up)
 )
-library(ggpubr)
+
 setwd("C:/Users/leh/OneDrive - TUNI.fi/Desktop/lncRNA_prostate_cancer/RNAseq_Novogene_2026")
-ggexport(heatmap, filename = "heatmap_shared_gene_Doxycycline.tiff", width = 3000,   height = 1800,  res = 300)
+ggexport(heatmap, filename = "heatmap_shared_gene_Doxycycline_protein_coding.tiff", width = 1400,   height = 1800,  res = 300)
+
+############################################################################################################################################
+##### Gene set calculation
+############################################################################################################################################
+library(fgsea)
+library(msigdbr)
+library(dplyr)
+library(ggplot2)
+hallmark <- msigdbr(
+    species = "Homo sapiens",
+    collection = "H"
+)
+hallmark_sets <- split(
+    hallmark$gene_symbol,
+    hallmark$gs_name
+)
+length(hallmark_sets)
+head(names(hallmark_sets))
+make_rank <- function(df) {
+    
+    x <- df %>%
+        filter(
+            !is.na(SYMBOL),
+            SYMBOL != "",
+            !is.na(stat)
+        ) %>%
+        group_by(SYMBOL) %>%
+        slice_max(
+            order_by = abs(stat),
+            n = 1
+        ) %>%
+        ungroup()
+    
+    rank <- x$stat
+    names(rank) <- x$SYMBOL
+    
+    rank <- sort(rank, decreasing = TRUE)
+    
+    return(rank)
+}
+rank.main <- make_rank(res.main.df)
+rank.near <- make_rank(res.near.df)
+rank.far  <- make_rank(res.far.df)
+head(rank.main)
+head(rank.near)
+head(rank.far)
+gsea.main <- fgsea(
+    pathways = hallmark_sets,
+    stats = rank.main,
+    minSize = 15,
+    maxSize = 500
+)
+
+gsea.near <- fgsea(
+    pathways = hallmark_sets,
+    stats = rank.near,
+    minSize = 15,
+    maxSize = 500
+)
+
+gsea.far <- fgsea(
+    pathways = hallmark_sets,
+    stats = rank.far,
+    minSize = 15,
+    maxSize = 500
+)
+gsea.main$Comparison <- "Main"
+gsea.near$Comparison <- "Near"
+gsea.far$Comparison <- "Far"
+gsea.all <- rbind(
+  gsea.main,
+  gsea.near,
+  gsea.far
+)
+table(gsea.all$Comparison)
+gsea.all <- rbind(
++   gsea.main,
++   gsea.near,
++   gsea.far
++ )
+head(gsea.all)
+table(gsea.all$Comparison)
+library(dplyr)
+library(tidyr)
+ 
+nes.data <- gsea.all %>%
++   dplyr::select(pathway, Comparison, NES)
+nes.wide <- nes.data %>%
++   tidyr::pivot_wider(
++     names_from = Comparison,
++     values_from = NES
++   )
+head(nes.wide)
+nes.mat <- as.data.frame(nes.wide) 
+rownames(nes.mat) <- nes.mat$pathway
+nes.mat$pathway <- NULL 
+nes.mat <- as.matrix(nes.mat)
+nes.mat <- nes.mat[, c("Main", "Near", "Far")]
+dim(nes.mat)
+
+head(nes.mat)
+
+library(pheatmap) 
+ pheatmap(
++   nes.mat,
++   scale = "none",
++   cluster_rows = TRUE,
++   cluster_cols = FALSE,
++   border_color = NA,
++ 
++   color = colorRampPalette(
++     c("royalblue3", "white", "red3")
++   )(100),
++ 
++   fontsize_row = 8,
++   fontsize_col = 12,
++ 
++   main = "GSEA pathway enrichment"
++ )
+
+#### Gene set involve in the different expression genes
+
