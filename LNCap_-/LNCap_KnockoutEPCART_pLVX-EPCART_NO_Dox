@@ -1,0 +1,451 @@
+#### Compare the data between LNCap EPCART cells and LNCap knockout EPCART
+
+### loading libraries
+library(tximport)
+library(DESeq2)
+library(readr)
+library(dplyr)
+library(stringr)
+library(tibble)
+library(tidyr)
+library(ggplot2)
+library(ggrepel)
+library(pheatmap)
+
+##############################################################################
+# loading the data from LNCap EPCART overexpression gene
+kallisto.dir <- "C:/Users/leh/OneDrive - TUNI.fi/Documents/output_kallisto"
+all.files <- list.files(
+    path = kallisto.dir,
+    pattern = "abundance.tsv$",
+    recursive = TRUE,
+    full.names = TRUE
+)
+all.sample.names <- basename(dirname(all.files))
+all.sample.names
+keep.idx <- grepl(
+    "^(main|near|far|luc)_[123]$",
+    all.sample.names)
+files <- all.files[keep.idx]
+sample.names <- all.sample.names[keep.idx]
+names(files) <- sample.names
+files
+sample.names
+stopifnot(length(files) == 12)
+stopifnot(all(file.exists(files)))
+sample.info <- data.frame(
+    sample = sample.names,
+    stringsAsFactors = FALSE)
+sample.info$group <- case_when(
+    grepl("^main_", sample.info$sample) ~ "main",
+    grepl("^near_", sample.info$sample) ~ "near",
+    grepl("^far_",  sample.info$sample) ~ "far",
+    grepl("^luc_",  sample.info$sample) ~ "luc")
+sample.info$group <- factor(
+    sample.info$group,
+    levels = c("luc", "main", "near", "far"))
+sample.info$replicate <- str_extract(
+    sample.info$sample,
+    "[123]$")
+rownames(sample.info) <- sample.info$sample
+sample.info
+table(sample.info$group)
+stopifnot(
+    all(table(sample.info$group) == 3))
+example <- read_tsv(
+    files[1],
+    show_col_types = FALSE)
+head(example)
+split.ids <- str_split_fixed(
+    example$target_id,
+    "\\|",
+    9)
+tx2gene <- tibble(
+    TXNAME = example$target_id,
+    GENEID = split.ids[,2],
+    SYMBOL = split.ids[,6])
+tx2gene <- distinct(tx2gene)
+head(tx2gene)
+tx2gene.simple <- tx2gene %>%
+    select(TXNAME, GENEID)
+txi <- tximport(
+    files,
+    type = "none",
+    tx2gene = tx2gene.simple,
+    txIn = TRUE,
+    txOut = FALSE,
+    countsFromAbundance = "no",
+    txIdCol = "target_id",
+    abundanceCol = "tpm",
+    countsCol = "est_counts",
+    lengthCol = "eff_length",
+
+    importer = function(x)
+        read_tsv(
+            x,
+            show_col_types = FALSE
+        )
+)
+
+gene.annot <- tx2gene %>%
+    select(GENEID, SYMBOL) %>%
+    distinct(GENEID, .keep_all = TRUE)
+sample.info <- sample.info[
+    colnames(txi$counts),]
+
+stopifnot(
+    all(
+        colnames(txi$counts) ==
+        rownames(sample.info)
+    )
+)
+dds <- DESeqDataSetFromTximport(
+    txi,
+    colData = sample.info,
+    design = ~ group)
+keep <- rowSums(
+    counts(dds) >= 10
+) >= 3
+dds <- dds[keep, ]
+dim(dds)
+
+dds$group <- relevel(
+    dds$group,
+    ref = "luc")
+
+dds <- DESeq(dds)
+resultsNames(dds)
+res.main <- results(
+    dds,
+    contrast = c(
+        "group",
+        "main",
+        "luc"))
+res.main.df <- as.data.frame(res.main) %>%
+    rownames_to_column("GENEID") %>%
+    left_join(
+        gene.annot,
+        by = "GENEID"
+    ) %>%
+    arrange(padj)
+res.near <- results(
+    dds,
+    contrast = c(
+        "group",
+        "near",
+        "luc" ))
+res.near.df <- as.data.frame(res.near) %>%
+    rownames_to_column("GENEID") %>%
+    left_join(
+        gene.annot,
+        by = "GENEID"
+    ) %>%
+    arrange(padj)
+
+res.far <- results(
+    dds,
+    contrast = c(
+        "group",
+        "far",
+        "luc" ))
+res.far.df <- as.data.frame(res.far) %>%
+    rownames_to_column("GENEID") %>%
+    left_join(
+        gene.annot,
+        by = "GENEID"
+    ) %>%
+    arrange(padj)
+
+#############################################################################################
+# Loading the data from LNCap knockout cells
+library(tximport)
+library(DESeq2)
+library(readr)
+library(dplyr)
+library(stringr)
+library(tibble)
+library(tidyr)
+library(ggplot2)
+library(ggrepel)
+library(pheatmap)
+
+##############################################################################
+# 1. Load Kallisto data
+##############################################################################
+
+kallisto.dir <- "C:/Users/leh/OneDrive - TUNI.fi/Documents/Data/del_long_AGR2"
+
+all.files <- list.files(
+  path = kallisto.dir,
+  pattern = "abundance.tsv$",
+  recursive = TRUE,
+  full.names = TRUE
+)
+
+all.sample.names <- basename(dirname(all.files))
+
+all.sample.names
+
+
+##############################################################################
+# 2. Keep only del4, del56 and WT samples
+##############################################################################
+
+keep.idx <- grepl(
+  "^(del_4|del_56|WT_24)_[123]$",
+  all.sample.names
+)
+
+files <- all.files[keep.idx]
+
+sample.names <- all.sample.names[keep.idx]
+
+names(files) <- sample.names
+
+files
+sample.names
+
+
+##############################################################################
+# Check that we have 9 samples
+##############################################################################
+
+stopifnot(length(files) == 9)
+
+stopifnot(all(file.exists(files)))
+
+
+##############################################################################
+# 3. Create sample information
+##############################################################################
+
+sample.info <- data.frame(
+  sample = sample.names,
+  stringsAsFactors = FALSE
+)
+
+sample.info$group <- case_when(
+  grepl("^del_4_",  sample.info$sample) ~ "del4",
+  grepl("^del_56_", sample.info$sample) ~ "del56",
+  grepl("^WT_24_",  sample.info$sample) ~ "WT"
+)
+
+sample.info$group <- factor(
+  sample.info$group,
+  levels = c("WT", "del4", "del56")
+)
+
+sample.info$replicate <- str_extract(
+  sample.info$sample,
+  "[123]$"
+)
+
+rownames(sample.info) <- sample.info$sample
+
+sample.info
+
+
+##############################################################################
+# Check number of replicates
+##############################################################################
+
+table(sample.info$group)
+
+stopifnot(
+  all(table(sample.info$group) == 3)
+)
+
+
+##############################################################################
+# 4. Read one Kallisto file to create tx2gene
+##############################################################################
+
+example <- read_tsv(
+  files[1],
+  show_col_types = FALSE
+)
+
+head(example)
+
+
+##############################################################################
+# 5. Extract transcript, gene ID and gene symbol
+#
+# Your Kallisto target_id appears to have the same structure as the
+# previous EPCART dataset:
+#
+# transcript | gene ID | ... | SYMBOL | ...
+##############################################################################
+
+split.ids <- str_split_fixed(
+  example$target_id,
+  "\\|",
+  9
+)
+
+tx2gene <- tibble(
+  TXNAME = example$target_id,
+  GENEID = split.ids[, 2],
+  SYMBOL = split.ids[, 6]
+)
+
+tx2gene <- distinct(tx2gene)
+
+head(tx2gene)
+
+
+##############################################################################
+# 6. tx2gene mapping for tximport
+##############################################################################
+
+tx2gene.simple <- tx2gene %>%
+  select(TXNAME, GENEID)
+
+
+##############################################################################
+# 7. Import Kallisto with tximport
+##############################################################################
+
+txi <- tximport(
+  files,
+  type = "none",
+  tx2gene = tx2gene.simple,
+  txIn = TRUE,
+  txOut = FALSE,
+  countsFromAbundance = "no",
+  txIdCol = "target_id",
+  abundanceCol = "tpm",
+  countsCol = "est_counts",
+  lengthCol = "eff_length",
+
+  importer = function(x)
+    read_tsv(
+      x,
+      show_col_types = FALSE
+    )
+)
+
+
+##############################################################################
+# Check imported data
+##############################################################################
+
+dim(txi$counts)
+
+head(txi$counts[, 1:3])
+
+colnames(txi$counts)
+
+
+##############################################################################
+# 8. Gene annotation
+##############################################################################
+
+gene.annot <- tx2gene %>%
+  select(GENEID, SYMBOL) %>%
+  distinct(GENEID, .keep_all = TRUE)
+
+head(gene.annot)
+
+
+##############################################################################
+# 9. Make sure sample information is in exactly the same order
+##############################################################################
+
+sample.info <- sample.info[
+  colnames(txi$counts),
+]
+
+stopifnot(
+  all(
+    colnames(txi$counts) ==
+      rownames(sample.info)
+  )
+)
+
+sample.info
+
+
+##############################################################################
+# 10. Create DESeq2 object
+##############################################################################
+
+dds <- DESeqDataSetFromTximport(
+  txi,
+  colData = sample.info,
+  design = ~ group
+)
+
+
+##############################################################################
+# 11. Filter low-count genes
+##############################################################################
+
+keep <- rowSums(
+  counts(dds) >= 10
+) >= 3
+
+dds <- dds[keep, ]
+
+dim(dds)
+
+
+##############################################################################
+# 12. Set WT as reference
+##############################################################################
+
+dds$group <- relevel(
+  dds$group,
+  ref = "WT"
+)
+
+
+##############################################################################
+# 13. Run DESeq2
+##############################################################################
+
+dds <- DESeq(dds)
+
+
+##############################################################################
+# 14. Check available comparisons
+##############################################################################
+
+resultsNames(dds)
+res_del56 <- results(
+  dds,
+  contrast = c("group", "del56", "WT")
+)
+
+res_del56 <- as.data.frame(res_del56)
+
+res_del56$GENEID <- rownames(res_del56)
+
+res_del56 <- res_del56 %>%
+  left_join(
+    gene.annot,
+    by = "GENEID"
+  ) %>%
+  arrange(padj)
+
+head(res_del56)
+res_del4 <- results(
+  dds,
+  contrast = c("group", "del4", "WT")
+)
+
+res_del4 <- as.data.frame(res_del4)
+
+res_del4$GENEID <- rownames(res_del4)
+
+res_del4 <- res_del4 %>%
+  left_join(
+    gene.annot,
+    by = "GENEID"
+  ) %>%
+  arrange(padj)
+
+head(res_del4)
+
+
+
