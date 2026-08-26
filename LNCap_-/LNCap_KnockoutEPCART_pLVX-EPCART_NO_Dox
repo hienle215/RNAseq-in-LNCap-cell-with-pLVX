@@ -155,20 +155,29 @@ res.far.df <- as.data.frame(res.far) %>%
         by = "GENEID"
     ) %>%
     arrange(padj)
+main.sig <- res.main.df %>%
+    filter(
+        (log2FoldChange >= 1 & padj <= 0.05) |
+        (log2FoldChange <= -1 & padj <= 0.05)
+    ) %>%
+    arrange(padj)
+
+near.sig <- res.near.df %>%
+    filter(
+        (log2FoldChange >= 1 & padj <= 0.05) |
+        (log2FoldChange <= -1 & padj <= 0.05)
+    ) %>%
+    arrange(padj)
+
+far.sig <- res.far.df %>%
+    filter(
+        (log2FoldChange >= 1 & padj <= 0.05) |
+        (log2FoldChange <= -1 & padj <= 0.05)
+    ) %>%
+    arrange(padj)
 
 #############################################################################################
 # Loading the data from LNCap knockout cells
-library(tximport)
-library(DESeq2)
-library(readr)
-library(dplyr)
-library(stringr)
-library(tibble)
-library(tidyr)
-library(ggplot2)
-library(ggrepel)
-library(pheatmap)
-
 ##############################################################################
 # 1. Load Kallisto data
 ##############################################################################
@@ -446,6 +455,21 @@ res_del4 <- res_del4 %>%
   arrange(padj)
 
 head(res_del4)
+del4.sig <- res_del4 %>%
+    filter(
+        (log2FoldChange >= 1 & padj <= 0.05) |
+        (log2FoldChange <= -1 & padj <= 0.05)
+    ) %>%
+    arrange(padj)
+del56.sig <- res_del56 %>%
+    filter(
+        (log2FoldChange >= 1 & padj <= 0.05) |
+        (log2FoldChange <= -1 & padj <= 0.05)
+    ) %>%
+    arrange(padj)
+
+############################################################################################################################
+
 
 
 
