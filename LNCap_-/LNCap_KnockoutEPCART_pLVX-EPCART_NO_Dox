@@ -469,7 +469,298 @@ del56.sig <- res_del56 %>%
     arrange(padj)
 
 ############################################################################################################################
+### GSEA for main data
+library(fgsea)
+library(msigdbr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(pheatmap)
+hallmark <- msigdbr(
+    species = "Homo sapiens",
+    collection = "H"
+)
+
+hallmark_list <- hallmark %>%
+    split(x = .$gene_symbol, f = .$gs_name)
 
 
+length(hallmark_list)
+names(hallmark_list)
+# make a function to create the GSEA ranked list
+make_gene_rank <- function(res_df) {
+        rank_df <- res_df %>%
+        filter(
+            !is.na(SYMBOL),
+            SYMBOL != "",
+            !is.na(stat)
+        ) %>%
+        group_by(SYMBOL) %>%
+        slice_max(
+            order_by = abs(stat),
+            n = 1,
+            with_ties = FALSE
+        ) %>%
+        ungroup()
+    
+    gene_rank <- rank_df$stat
+    names(gene_rank) <- rank_df$SYMBOL
+    
+    gene_rank <- sort(
+        gene_rank,
+        decreasing = TRUE
+    )
+    
+    return(gene_rank)
+}
+rank_main <- make_gene_rank(res.main.df)
+rank_near <- make_gene_rank(res.near.df)
+rank_far <- make_gene_rank(res.far.df)
+rank_del4 <- make_gene_rank(res_del4)
+rank_del56 <- make_gene_rank(res_del56)
+
+gsea_main <- fgsea(
+    pathways = hallmark_list,
+    stats = rank_main,
+    minSize = 15,
+    maxSize = 500
+)
+
+gsea_near <- fgsea(
+    pathways = hallmark_list,
+    stats = rank_near,
+    minSize = 15,
+    maxSize = 500
+)
+
+gsea_far <- fgsea(
+    pathways = hallmark_list,
+    stats = rank_far,
+    minSize = 15,
+    maxSize = 500
+)
+
+gsea_del4 <- fgsea(
+    pathways = hallmark_list,
+    stats = rank_del4,
+    minSize = 15,
+    maxSize = 500
+)
+
+gsea_del56 <- fgsea(
+    pathways = hallmark_list,
+    stats = rank_del56,
+    minSize = 15,
+    maxSize = 500
+)
+
+gsea_all <- bind_rows(
+    gsea_main %>% mutate(group = "main"),
+    gsea_near %>% mutate(group = "near"),
+    gsea_far %>% mutate(group = "far"),
+    gsea_del4 %>% mutate(group = "del4"),
+    gsea_del56 %>% mutate(group = "del56"))
+
+gsea_all.sig <- bind_rows(
+    gsea_main %>%
+        filter(padj < 0.05) %>%
+        mutate(group = "main"),
+    
+    gsea_near %>%
+        filter(padj < 0.05) %>%
+        mutate(group = "near"),
+    
+    gsea_far %>%
+        filter(padj < 0.05) %>%
+        mutate(group = "far"),
+    
+    gsea_del4 %>%
+        filter(padj < 0.05) %>%
+        mutate(group = "del4"),
+    
+    gsea_del56 %>%
+        filter(padj < 0.05) %>%
+        mutate(group = "del56")
+)
 
 
+nes_matrix <- gsea_all.sig %>%
+    select(pathway, group, NES) %>%
+    pivot_wider(
+        names_from = group,
+        values_from = NES)
+
+nes_matrix <- as.data.frame(nes_matrix)
+
+rownames(nes_matrix) <- nes_matrix$pathway
+
+nes_matrix$pathway <- NULL
+
+nes_matrix <- as.matrix(nes_matrix)
+nes_matrix <- nes_matrix[, c(
+    "del4",
+    "del56",
+    "main",
+    "near",
+    "far"
+)]
+library(pheatmap)
+
+pheatmap(
+    nes_matrix,
+    cluster_rows = TRUE,
+    cluster_cols = FALSE,
+    border_color = NA,
+    main = "Significant Hallmark pathways (FDR < 0.05)"
+)
+
+# gse only for the overexpression gene
+gsea_over.sig <- bind_rows(
+    gsea_main %>%
+        filter(padj < 0.05) %>%
+        mutate(group = "main"),
+    
+    gsea_near %>%
+        filter(padj < 0.05) %>%
+        mutate(group = "near"),
+    
+    gsea_far %>%
+        filter(padj < 0.05) %>%
+        mutate(group = "far"))
+nes_matrix_over <- gsea_over.sig %>%
+    select(pathway, group, NES) %>%
+    pivot_wider(
+        names_from = group,
+        values_from = NES)
+
+nes_matrix_over <- as.data.frame(nes_matrix_over)
+
+rownames(nes_matrix_over) <- nes_matrix_over$pathway
+
+nes_matrix_over$pathway <- NULL
+
+nes_matrix_over <- as.matrix(nes_matrix_over)
+nes_matrix_over <- nes_matrix_over[, c(
+    "main",
+    "near",
+    "far"
+)]
+
+library(pheatmap)
+
+# Keep only pathways with NES values in ALL three groups
+nes_matrix_over_complete <- nes_matrix_over[
+    complete.cases(nes_matrix_over),
+    ,
+    drop = FALSE
+]
+
+# Check which pathways remain
+nes_matrix_over_complete
+pheatmap(
+    nes_matrix_over_complete,
+    cluster_rows = TRUE,
+    cluster_cols = FALSE,
+    border_color = NA,
+    main = "Hallmark GSEA – EPCART overexpression"
+)
+
+#####################################################################################################################################
+### calculate z-score
+library(msigdbr)
+
+hallmark <- msigdbr(
+    species = "Homo sapiens",
+    collection = "H"
+)
+
+hallmark_list <- split(
+    hallmark$gene_symbol,
+    hallmark$gs_name
+)
+calculate_hallmark_score <- function(res_df, hallmark_list) {
+    
+    df <- res_df %>%
+        filter(
+            !is.na(SYMBOL),
+            SYMBOL != "",
+            !is.na(stat)
+        ) %>%
+        group_by(SYMBOL) %>%
+        slice_max(
+            abs(stat),
+            n = 1,
+            with_ties = FALSE
+        ) %>%
+        ungroup()
+    
+    scores <- sapply(
+        hallmark_list,
+        function(genes) {
+            
+            x <- df$stat[df$SYMBOL %in% genes]
+            
+            if (length(x) < 5) {
+                return(NA_real_)
+            }
+            
+            mean(x, na.rm = TRUE)
+        }
+    )
+    
+    scores
+}
+score_main <- calculate_hallmark_score(
+    res.main.df,
+    hallmark_list
+)
+
+score_near <- calculate_hallmark_score(
+    res.near.df,
+    hallmark_list
+)
+
+score_far <- calculate_hallmark_score(
+    res.far.df,
+    hallmark_list
+)
+
+score_del4 <- calculate_hallmark_score(
+    res_del4,
+    hallmark_list
+)
+
+score_del56 <- calculate_hallmark_score(
+    res_del56,
+    hallmark_list
+)
+
+score_matrix <- cbind(
+    main = score_main,
+    near = score_near,
+    far = score_far,
+    del4 = score_del4,
+    del56 = score_del56
+)
+z_matrix <- t(
+    apply(
+        score_matrix,
+        1,
+        function(x) {
+            
+            if (all(is.na(x))) {
+                return(rep(NA, length(x)))
+            }
+            
+            s <- sd(x, na.rm = TRUE)
+            
+            if (is.na(s) || s == 0) {
+                return(rep(0, length(x)))
+            }
+            
+            (x - mean(x, na.rm = TRUE)) / s
+        }
+    )
+)
+rownames(z_matrix) <- rownames(score_matrix)
+colnames(z_matrix) <- colnames(score_matrix)
