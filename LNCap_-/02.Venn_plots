@@ -1,0 +1,649 @@
+##############################################################################
+# EPCART RNA-seq
+# Load DESeq2 significant gene tables
+# Filter main / near / far to protein-coding genes
+##############################################################################
+
+library(readr)
+library(readxl)
+library(dplyr)
+library(stringr)
+library(tibble)
+
+##############################################################################
+# 1. Set working directory
+##############################################################################
+
+data_dir <- "C:/Users/leh/OneDrive - TUNI.fi/Desktop/lncRNA_prostate_cancer/RNAseq_Novogene_2026/data"
+
+setwd(data_dir)
+
+##############################################################################
+# 2. Check files
+##############################################################################
+
+list.files(data_dir)
+##############################################################################
+# 3. Load DESeq2 result files
+##############################################################################
+
+# Knockdown EPCART
+del4_WT  <- read_excel("DESeq2_del4_WT_significant.xlsx")
+del56_WT <- read_excel("DESeq2_del56_WT_significant.xlsx")
+
+# EPCART overexpression
+far_dox_vs_luc_dox  <- read_csv("DESeq2_far_dox_vs_luc_dox_significant.csv")
+main_dox_vs_luc_dox <- read_csv("DESeq2_main_dox_vs_luc_dox_significant.csv")
+near_dox_vs_luc_dox <- read_csv("DESeq2_near_dox_vs_luc_dox_significant.csv")
+
+far_vs_luc  <- read_csv("DESeq2_far_vs_luc_significant.csv")
+main_vs_luc <- read_csv("DESeq2_main_vs_luc_significant.csv")
+near_vs_luc <- read_csv("DESeq2_near_vs_luc_significant.csv")
+
+##############################################################################
+# 4. Inspect column names
+##############################################################################
+
+colnames(main_vs_luc)
+colnames(near_vs_luc)
+colnames(far_vs_luc)
+
+colnames(del4_WT)
+colnames(del56_WT)
+
+head(main_vs_luc)
+head(near_vs_luc)
+head(far_vs_luc)
+
+##############################################################################
+# Standardize gene columns in knockdown datasets
+##############################################################################
+
+del4_WT <- del4_WT %>%
+  filter(`Gene name` != "Gene name") %>%   # remove repeated header if still present
+  rename(
+    SYMBOL = `Gene name`,
+    GENEID = `Ensembl ID`
+  )
+
+del56_WT <- del56_WT %>%
+  rename(
+    SYMBOL = `Gene name`,
+    GENEID = `Ensembl ID`
+  )
+colnames(del4_WT)
+colnames(del56_WT)
+##############################################################################
+# Remove Ensembl version number
+##############################################################################
+
+remove_ensembl_version <- function(x) {
+  sub("\\..*$", "", x)
+}
+
+main_vs_luc <- main_vs_luc %>%
+  mutate(GENEID_clean = remove_ensembl_version(GENEID))
+
+near_vs_luc <- near_vs_luc %>%
+  mutate(GENEID_clean = remove_ensembl_version(GENEID))
+
+far_vs_luc <- far_vs_luc %>%
+  mutate(GENEID_clean = remove_ensembl_version(GENEID))
+
+main_dox_vs_luc_dox <- main_dox_vs_luc_dox %>%
+  mutate(GENEID_clean = remove_ensembl_version(GENEID))
+
+near_dox_vs_luc_dox <- near_dox_vs_luc_dox %>%
+  mutate(GENEID_clean = remove_ensembl_version(GENEID))
+
+far_dox_vs_luc_dox <- far_dox_vs_luc_dox %>%
+  mutate(GENEID_clean = remove_ensembl_version(GENEID))
+
+del4_WT <- del4_WT %>%
+  mutate(GENEID_clean = remove_ensembl_version(GENEID))
+
+del56_WT <- del56_WT %>%
+  mutate(GENEID_clean = remove_ensembl_version(GENEID))
+
+############################################## protein-coding gene#######################################
+library(rtracklayer)
+library(dplyr)
+library(stringr)
+
+##############################################################################
+# 1. Load GENCODE v48 annotation
+##############################################################################
+
+gtf <- import(
+  "C:/Users/leh/OneDrive - TUNI.fi/Documents/gencode.v48.annotation.gtf.gz"
+)
+
+##############################################################################
+# 2. Extract gene-level annotation
+##############################################################################
+
+gene_annotation <- as.data.frame(gtf) %>%
+  filter(type == "gene") %>%
+  select(gene_id, gene_name, gene_type) %>%
+  distinct()
+
+##############################################################################
+# 3. Remove Ensembl version numbers from annotation
+##############################################################################
+
+gene_annotation <- gene_annotation %>%
+  mutate(
+    GENEID_clean = sub("\\..*$", "", gene_id)
+  ) %>%
+  distinct(GENEID_clean, .keep_all = TRUE)
+
+##############################################################################
+# 4. Add GENCODE annotation to main / near / far
+##############################################################################
+
+main.annotated <- main_vs_luc %>%
+  left_join(
+    gene_annotation %>%
+      select(GENEID_clean, gene_name, gene_type),
+    by = "GENEID_clean"
+  )
+
+near.annotated <- near_vs_luc %>%
+  left_join(
+    gene_annotation %>%
+      select(GENEID_clean, gene_name, gene_type),
+    by = "GENEID_clean"
+  )
+
+far.annotated <- far_vs_luc %>%
+  left_join(
+    gene_annotation %>%
+      select(GENEID_clean, gene_name, gene_type),
+    by = "GENEID_clean"
+  )
+
+main.dox.annotated <- main_dox_vs_luc_dox %>%
+  left_join(
+    gene_annotation %>%
+      select(GENEID_clean, gene_name, gene_type),
+    by = "GENEID_clean"
+  )
+
+near.dox.annotated <- near_dox_vs_luc_dox %>%
+  left_join(
+    gene_annotation %>%
+      select(GENEID_clean, gene_name, gene_type),
+    by = "GENEID_clean"
+  )
+
+far.dox.annotated <- far_dox_vs_luc_dox %>%
+  left_join(
+    gene_annotation %>%
+      select(GENEID_clean, gene_name, gene_type),
+    by = "GENEID_clean"
+  )
+
+table(main.annotated$gene_type, useNA = "ifany")
+table(near.annotated$gene_type, useNA = "ifany")
+table(far.annotated$gene_type, useNA = "ifany")
+table(main.dox.annotated$gene_type, useNA = "ifany")
+table(near.dox.annotated$gene_type, useNA = "ifany")
+table(far.dox.annotated$gene_type, useNA = "ifany")
+
+##############################################################################
+# 5. Keep only protein-coding genes
+##############################################################################
+
+main.protein <- main.annotated %>%
+  filter(gene_type == "protein_coding")
+
+near.protein <- near.annotated %>%
+  filter(gene_type == "protein_coding")
+
+far.protein <- far.annotated %>%
+  filter(gene_type == "protein_coding")
+
+main.dox.protein <- main.dox.annotated %>%
+  filter(gene_type == "protein_coding")
+
+near.dox.protein <- near.dox.annotated %>%
+  filter(gene_type == "protein_coding")
+
+far.dox.protein <- far.dox.annotated %>%
+  filter(gene_type == "protein_coding")
+##############################################################################
+# Standardize del4 / del56
+##############################################################################
+
+del4_WT <- del4_WT %>%
+  filter(SYMBOL != "Gene name")
+
+del56_WT <- del56_WT %>%
+  filter(SYMBOL != "Gene name")
+
+##############################################################################
+# MAIN
+##############################################################################
+
+main_up <- main.protein %>%
+  filter(log2FoldChange > 0) %>%
+  pull(GENEID_clean) %>%
+  unique()
+
+main_down <- main.protein %>%
+  filter(log2FoldChange < 0) %>%
+  pull(GENEID_clean) %>%
+  unique()
+
+main_up_dox <- main.dox.protein %>%
+  filter(log2FoldChange > 0) %>%
+  pull(GENEID_clean) %>%
+  unique()
+
+main_down_dox <- main.dox.protein %>%
+  filter(log2FoldChange < 0) %>%
+  pull(GENEID_clean) %>%
+  unique()
+##############################################################################
+# NEAR
+##############################################################################
+
+near_up <- near.protein %>%
+  filter(log2FoldChange > 0) %>%
+  pull(GENEID_clean) %>%
+  unique()
+
+near_down <- near.protein %>%
+  filter(log2FoldChange < 0) %>%
+  pull(GENEID_clean) %>%
+  unique()
+
+near_up_dox <- near.dox.protein %>%
+  filter(log2FoldChange > 0) %>%
+  pull(GENEID_clean) %>%
+  unique()
+
+near_down_dox <- near.dox.protein %>%
+  filter(log2FoldChange < 0) %>%
+  pull(GENEID_clean) %>%
+  unique()
+##############################################################################
+# FAR
+##############################################################################
+
+far_up <- far.protein %>%
+  filter(log2FoldChange > 0) %>%
+  pull(GENEID_clean) %>%
+  unique()
+
+far_down <- far.protein %>%
+  filter(log2FoldChange < 0) %>%
+  pull(GENEID_clean) %>%
+  unique()
+
+far_up_dox <- far.dox.protein %>%
+  filter(log2FoldChange > 0) %>%
+  pull(GENEID_clean) %>%
+  unique()
+
+far_down_dox <- far.dox.protein %>%
+  filter(log2FoldChange < 0) %>%
+  pull(GENEID_clean) %>%
+  unique()
+
+##############################################################################
+# DEL4
+##############################################################################
+
+del4_up <- del4_WT %>%
+  filter(log2FoldChange >= 0.5) %>%
+  pull(GENEID_clean) %>%
+  unique()
+
+del4_down <- del4_WT %>%
+  filter(log2FoldChange <= -0.5) %>%
+  pull(GENEID_clean) %>%
+  unique()
+
+
+##############################################################################
+# DEL56
+##############################################################################
+
+del56_up <- del56_WT %>%
+  filter(log2FoldChange >= 0.5) %>%
+  pull(GENEID_clean) %>%
+  unique()
+
+del56_down <- del56_WT %>%
+  filter(log2FoldChange <= -0.5) %>%
+  pull(GENEID_clean) %>%
+  unique()
+
+##########################################################################################
+## Venn plots
+##############################################################################################
+venn_colors <- c(
+  Main  = "#ADD8E6",   # light blue
+  Near  = "#FFDAB9",   # light orange
+  Far   = "#90EE90",   # light green
+  Del4  = "#FFB6B6",   # light red
+  Del56 = "#D8BFD8"    # light purple / thistle
+)
+##############################################################################
+# VENN 1
+# Main DOWN + Near DOWN + Far DOWN
+# versus
+# Del4 UP + Del56 UP
+##############################################################################
+
+venn_down_up <- venn.diagram(
+  x = list(
+    Main_DOWN  = main_down,
+    Near_DOWN  = near_down,
+    Far_DOWN   = far_down,
+    Del4_UP    = del4_up,
+    Del56_UP   = del56_up
+  ),
+  
+  filename = NULL,
+  
+  fill = venn_colors,
+  
+  alpha = 0.55,
+  
+  # Numbers
+  cex = 1.3,
+  fontface = "bold",
+  
+  # Set names
+  cat.cex = 1.2,
+  cat.fontface = "bold",
+  
+  # Position of set names
+  cat.pos = c(-20, 20, 180, 180, 0),
+  cat.dist = c(0.05, 0.05, 0.05, 0.08, 0.08),
+  
+  margin = 0.08,
+  
+  main = "EPCART OE DOWN vs EPCART KD UP",
+  main.cex = 1.5,
+  main.fontface = "bold"
+)
+
+grid.newpage()
+grid.draw(venn_down_up)
+
+##############################################################################
+# VENN 2
+# Main UP + Near UP + Far UP
+# versus
+# Del4 DOWN + Del56 DOWN
+##############################################################################
+
+venn_up_down <- venn.diagram(
+  x = list(
+    Main_UP   = main_up,
+    Near_UP   = near_up,
+    Far_UP    = far_up,
+    Del4_DOWN = del4_down,
+    Del56_DOWN = del56_down
+  ),
+  
+  filename = NULL,
+  
+  fill = venn_colors,
+  
+  alpha = 0.55,
+  
+  # Numbers
+  cex = 1.3,
+  fontface = "bold",
+  
+  # Set names
+  cat.cex = 1.2,
+  cat.fontface = "bold",
+  
+  # Position of set names
+  cat.pos = c(-20, 20, 180, 180, 0),
+  cat.dist = c(0.05, 0.05, 0.05, 0.08, 0.08),
+  
+  margin = 0.08,
+  
+  main = "EPCART OE UP vs EPCART KD DOWN",
+  main.cex = 1.5,
+  main.fontface = "bold"
+)
+
+grid.newpage()
+grid.draw(venn_up_down)
+
+library(VennDiagram)
+library(grid)
+
+##############################################################################
+# MAIN DOWN vs DEL4 UP vs DEL56 UP
+##############################################################################
+
+venn_main_down <- venn.diagram(
+  x = list(
+    Main_DOWN = main_down,
+    Del4_UP   = del4_up,
+    Del56_UP  = del56_up
+  ),
+  
+  filename = NULL,
+  
+  fill = c(
+    "#ADD8E6",   # Main = light blue
+    "#FFB6B6",   # Del4 = light red
+    "#D8BFD8"    # Del56 = light purple
+  ),
+  
+  alpha = 0.55,
+  
+  cex = 1.4,
+  fontface = "bold",
+  
+  cat.cex = 1.2,
+  cat.fontface = "bold",
+  
+  margin = 0.08,
+  
+  main = "Main EPCART DOWN vs Del4/Del56 UP",
+  main.cex = 1.5,
+  main.fontface = "bold"
+)
+
+grid.newpage()
+grid.draw(venn_main_down)
+
+##############################################################################
+# MAIN UP vs DEL4 DOWN vs DEL56 DOWN
+##############################################################################
+
+venn_main_up <- venn.diagram(
+  x = list(
+    Main_UP   = main_up,
+    Del4_DOWN = del4_down,
+    Del56_DOWN = del56_down
+  ),
+  
+  filename = NULL,
+  
+  fill = c(
+    "#ADD8E6",   # Main = light blue
+    "#FFB6B6",   # Del4 = light red
+    "#D8BFD8"    # Del56 = light purple
+  ),
+  
+  alpha = 0.55,
+  
+  cex = 1.4,
+  fontface = "bold",
+  
+  cat.cex = 1.2,
+  cat.fontface = "bold",
+  
+  margin = 0.08,
+  
+  main = "Main EPCART UP vs Del4/Del56 DOWN",
+  main.cex = 1.5,
+  main.fontface = "bold"
+)
+
+grid.newpage()
+grid.draw(venn_main_up)
+
+##############################################################################
+# Main DOWN + Del4 UP + Del56 UP
+##############################################################################
+
+shared_mainDown_del4Up_del56Up <- Reduce(
+  intersect,
+  list(
+    main_down,
+    del4_up,
+    del56_up
+  )
+)
+
+length(shared_mainDown_del4Up_del56Up)
+
+shared_mainDown_del4Up_del56Up
+##############################################################################
+# Extract log2FC for shared genes
+##############################################################################
+
+heatmap_data <- data.frame(
+  Gene = shared_mainDown_del4Up_del56Up,
+  
+  Main = main.protein$log2FoldChange[
+    match(shared_mainDown_del4Up_del56Up,
+          main.protein$GENEID_clean)
+  ],
+  
+  Del4 = del4_WT$log2FoldChange[
+    match(shared_mainDown_del4Up_del56Up,
+          del4_WT$GENEID_clean)
+  ],
+  
+  Del56 = del56_WT$log2FoldChange[
+    match(shared_mainDown_del4Up_del56Up,
+          del56_WT$GENEID_clean)
+  ]
+)
+
+heatmap_data
+gene_names <- main.protein %>%
+  select(GENEID_clean, SYMBOL) %>%
+  distinct()
+
+heatmap_data <- heatmap_data %>%
+  left_join(
+    gene_names,
+    by = c("Gene" = "GENEID_clean")
+  ) %>%
+  select(SYMBOL, Main, Del4, Del56)
+
+heatmap_data
+library(pheatmap)
+
+##############################################################################
+# Heatmap
+##############################################################################
+
+heatmap_matrix <- heatmap_data %>%
+  tibble::column_to_rownames("SYMBOL") %>%
+  as.matrix()
+
+pheatmap(
+  heatmap_matrix,
+  scale = "none",
+  cluster_rows = TRUE,
+  cluster_cols = FALSE,
+  border_color = NA,
+  main = "Main DOWN / Del4 UP / Del56 UP",
+  fontsize_row = 10,
+  fontsize_col = 12
+)
+
+#### in the dox group. make the comparison between main_dox, near_dox, far_dox with del4 and del56
+############################################################################################################
+venn_down_up <- venn.diagram(
+  x = list(
+    Main_DOWN  = main_down_dox,
+    Near_DOWN  = near_down_dox,
+    Far_DOWN   = far_down_dox,
+    Del4_UP    = del4_up,
+    Del56_UP   = del56_up
+  ),
+  
+  filename = NULL,
+  
+  fill = venn_colors,
+  
+  alpha = 0.55,
+  
+  # Numbers
+  cex = 1.3,
+  fontface = "bold",
+  
+  # Set names
+  cat.cex = 1.2,
+  cat.fontface = "bold",
+  
+  # Position of set names
+  cat.pos = c(-20, 20, 180, 180, 0),
+  cat.dist = c(0.05, 0.05, 0.05, 0.08, 0.08),
+  
+  margin = 0.08,
+  
+  main = "EPCART OE DOWN/Dox vs EPCART KO UP",
+  main.cex = 1.5,
+  main.fontface = "bold"
+)
+
+grid.newpage()
+grid.draw(venn_down_up)
+
+###################Venn2
+venn_up_down <- venn.diagram(
+  x = list(
+    Main_UP   = main_up_dox,
+    Near_UP   = near_up_dox,
+    Far_UP    = far_up_dox,
+    Del4_DOWN = del4_down,
+    Del56_DOWN = del56_down
+  ),
+  
+  filename = NULL,
+  
+  fill = venn_colors,
+  
+  alpha = 0.55,
+  
+  # Numbers
+  cex = 1.3,
+  fontface = "bold",
+  
+  # Set names
+  cat.cex = 1.2,
+  cat.fontface = "bold",
+  
+  # Position of set names
+  cat.pos = c(-20, 20, 180, 180, 0),
+  cat.dist = c(0.05, 0.05, 0.05, 0.08, 0.08),
+  
+  margin = 0.08,
+  
+  main = "EPCART OE DOWN/Dox vs EPCART KD UP",
+  main.cex = 1.5,
+  main.fontface = "bold"
+)
+
+grid.newpage()
+grid.draw(venn_up_down)
+
+library(VennDiagram)
+library(grid)
