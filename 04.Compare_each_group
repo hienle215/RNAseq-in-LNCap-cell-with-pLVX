@@ -1,0 +1,394 @@
+## Comparisons:
+## main_dox vs main
+## near_dox vs near
+## far_dox vs far
+## luc_dox vs luc
+###############################################################
+
+rm(list = ls())
+
+###############################
+## Load libraries
+###############################
+
+library(tximport)
+library(DESeq2)
+library(readr)
+library(dplyr)
+library(stringr)
+library(tibble)
+library(tidyr)
+library(ggplot2)
+library(ggrepel)
+library(pheatmap)
+
+###############################
+## Set kallisto directory
+###############################
+
+kallisto.dir <- "C:/Users/leh/OneDrive - TUNI.fi/Documents/output_kallisto"
+
+###############################
+## Find abundance.tsv files
+###############################
+all.files <- list.files(
+    path = kallisto.dir,
+    pattern = "abundance.tsv$",
+    recursive = TRUE,
+    full.names = TRUE
+)
+
+all.sample.names <- basename(dirname(all.files))
+
+all.sample.names
+length(all.sample.names)
+files <- all.files
+sample.names <- all.sample.names
+
+names(files) <- sample.names
+
+stopifnot(length(files) == 24)
+stopifnot(all(file.exists(files)))
+
+files
+###############################################################
+## Sample information
+###############################################################
+
+sample.info <- data.frame(
+    sample = sample.names,
+    stringsAsFactors = FALSE
+)
+###############################################################
+## Dox status
+###############################################################
+
+sample.info$dox <- ifelse(
+    grepl("_dox_", sample.info$sample),
+    "dox",
+    "no_dox"
+)
+
+sample.info$dox <- factor(
+    sample.info$dox,
+    levels = c("no_dox", "dox")
+)
+###############################################################
+## Experimental group
+###############################################################
+
+sample.info$group <- case_when(
+    grepl("^main", sample.info$sample) ~ "main",
+    grepl("^near", sample.info$sample) ~ "near",
+    grepl("^far",  sample.info$sample) ~ "far",
+    grepl("^luc",  sample.info$sample) ~ "luc"
+)
+
+sample.info$group <- factor(
+    sample.info$group,
+    levels = c("luc", "main", "near", "far")
+)
+###############################################################
+## Replicate
+###############################################################
+
+sample.info$replicate <- str_extract(
+    sample.info$sample,
+    "[123]$"
+)
+
+rownames(sample.info) <- sample.info$sample
+
+sample.info
+table(sample.info$group, sample.info$dox)
+###############################################################
+## Build tx2gene
+###############################################################
+
+example <- read_tsv(
+    files[1],
+    show_col_types = FALSE
+)
+
+split.ids <- str_split_fixed(
+    example$target_id,
+    "\\|",
+    9
+)
+
+tx2gene <- tibble(
+    TXNAME = example$target_id,
+    GENEID = split.ids[,2],
+    SYMBOL = split.ids[,6]
+)
+
+tx2gene <- distinct(tx2gene)
+
+head(tx2gene)
+###############################################################
+## Import all 24 samples
+###############################################################
+
+txi <- tximport(
+    files,
+    type = "kallisto",
+    tx2gene = tx2gene
+)
+library(DESeq2)
+
+run_dox_comparison <- function(group_name) {
+    
+    keep <- sample.info$group == group_name
+    
+    count_sub <- txi$counts[, keep]
+    
+    coldata_sub <- sample.info[keep, ]
+    
+    dds <- DESeqDataSetFromMatrix(
+        countData = round(count_sub),
+        colData = coldata_sub,
+        design = ~ dox
+    )
+    
+    dds <- dds[rowSums(counts(dds) >= 10) >= 3, ]
+    
+    dds <- DESeq(dds)
+    
+    res <- results(
+        dds,
+        contrast = c("dox", "dox", "no_dox")
+    )
+    
+    res <- as.data.frame(res)
+    
+    res$GeneID <- rownames(res)
+    
+    res
+}
+main_dox_vs_main <- run_dox_comparison("main")
+
+near_dox_vs_near <- run_dox_comparison("near")
+
+far_dox_vs_far <- run_dox_comparison("far")
+
+luc_dox_vs_luc <- run_dox_comparison("luc")
+
+library(dplyr)
+
+main_dox_vs_main <- main_dox_vs_main %>%
+    left_join(
+        tx2gene %>%
+            select(GENEID, SYMBOL) %>%
+            distinct(),
+        by = c("GeneID" = "GENEID")
+    )
+
+near_dox_vs_near <- near_dox_vs_near %>%
+    left_join(
+        tx2gene %>%
+            select(GENEID, SYMBOL) %>%
+            distinct(),
+        by = c("GeneID" = "GENEID")
+    )
+
+far_dox_vs_far <- far_dox_vs_far %>%
+    left_join(
+        tx2gene %>%
+            select(GENEID, SYMBOL) %>%
+            distinct(),
+        by = c("GeneID" = "GENEID")
+    )
+
+luc_dox_vs_luc <- luc_dox_vs_luc %>%
+    left_join(
+        tx2gene %>%
+            select(GENEID, SYMBOL) %>%
+            distinct(),
+        by = c("GeneID" = "GENEID")
+    )
+
+write.csv(
+    main_dox_vs_main,
+    "DESeq2_main_dox_vs_main.csv",
+    row.names = FALSE
+)
+
+write.csv(
+    near_dox_vs_near,
+    "DESeq2_near_dox_vs_near.csv",
+    row.names = FALSE
+)
+
+write.csv(
+    far_dox_vs_far,
+    "DESeq2_far_dox_vs_far.csv",
+    row.names = FALSE
+)
+
+write.csv(
+    luc_dox_vs_luc,
+    "DESeq2_luc_dox_vs_luc.csv",
+    row.names = FALSE
+)
+
+####################################################################################################################
+### significant genes
+
+main_sig <- main_dox_vs_main %>%
+    filter(
+        !is.na(padj),
+        padj < 0.05,
+        log2FoldChange >= 1 | log2FoldChange <= -1
+    )
+
+near_sig <- near_dox_vs_near %>%
+    filter(
+        !is.na(padj),
+        padj < 0.05,
+        log2FoldChange >= 1 | log2FoldChange <= -1
+    )
+
+far_sig <- far_dox_vs_far %>%
+    filter(
+        !is.na(padj),
+        padj < 0.05,
+        log2FoldChange >= 1 | log2FoldChange <= -1
+    )
+
+luc_sig <- luc_dox_vs_luc %>%
+    filter(
+        !is.na(padj),
+        padj < 0.05,
+        log2FoldChange >= 1 | log2FoldChange <= -1
+    )
+#######################################################################################################
+############ protein coding
+########################################################################################################
+library(rtracklayer)
+library(dplyr)
+
+gtf <- import("gencode.v48.annotation.gtf.gz")
+head(as.data.frame(gtf))
+gtf_df <- as.data.frame(gtf)
+
+protein_coding <- gtf_df %>%
+    filter(
+        type == "gene",
+        gene_type == "protein_coding"
+    ) %>%
+    select(gene_id, gene_name) %>%
+    distinct()
+protein_coding <- protein_coding %>%
+    mutate(
+        gene_id_clean = sub("\\..*$", "", gene_id)
+    )
+main_sig <- main_sig %>%
+    mutate(gene_id_clean = sub("\\..*$", "", GeneID))
+
+near_sig <- near_sig %>%
+    mutate(gene_id_clean = sub("\\..*$", "", GeneID))
+
+far_sig <- far_sig %>%
+    mutate(gene_id_clean = sub("\\..*$", "", GeneID))
+
+luc_sig <- luc_sig %>%
+    mutate(gene_id_clean = sub("\\..*$", "", GeneID))
+
+#### keep only protein coding genes of significant genes
+main_pc <- main_sig %>%
+    filter(gene_id_clean %in% protein_coding$gene_id_clean)
+
+near_pc <- near_sig %>%
+    filter(gene_id_clean %in% protein_coding$gene_id_clean)
+
+far_pc <- far_sig %>%
+    filter(gene_id_clean %in% protein_coding$gene_id_clean)
+
+luc_pc <- luc_sig %>%
+    filter(gene_id_clean %in% protein_coding$gene_id_clean)
+dim(main_pc)
+dim(near_pc)
+dim(far_pc)
+dim(luc_pc)
+
+# take up regulated genes
+main_up <- main_pc %>%
+    filter(log2FoldChange >= 1) %>%
+    pull(SYMBOL) %>%
+    unique()
+
+near_up <- near_pc %>%
+    filter(log2FoldChange >= 1) %>%
+    pull(SYMBOL) %>%
+    unique()
+
+far_up <- far_pc %>%
+    filter(log2FoldChange >= 1) %>%
+    pull(SYMBOL) %>%
+    unique()
+
+luc_up <- luc_pc %>%
+    filter(log2FoldChange >= 1) %>%
+    pull(SYMBOL) %>%
+    unique()
+length(main_up)
+length(near_up)
+length(far_up)
+length(luc_up)
+
+library(VennDiagram)
+venn_up <- venn.diagram(
+    x = list(
+        Main = main_up,
+        Near = near_up,
+        Far  = far_up,
+        Luc  = luc_up
+    ),
+    filename = NULL,
+    fill = c("#F4A3A3", "#9DB7E8", "#A8D5A2", "#F6C98D"),
+    alpha = 0.5,
+    cex = 1.2,
+    cat.cex = 1.2,
+    margin = 0.1
+)
+
+grid::grid.newpage()
+grid::grid.draw(venn_up)
+
+### down regulated genes
+main_down <- main_pc %>%
+    filter(log2FoldChange <= -1) %>%
+    pull(SYMBOL) %>%
+    unique()
+
+near_down <- near_pc %>%
+    filter(log2FoldChange <= -1) %>%
+    pull(SYMBOL) %>%
+    unique()
+
+far_down <- far_pc %>%
+    filter(log2FoldChange <= -1) %>%
+    pull(SYMBOL) %>%
+    unique()
+
+luc_down <- luc_pc %>%
+    filter(log2FoldChange <= -1) %>%
+    pull(SYMBOL) %>%
+    unique()
+venn_down <- venn.diagram(
+    x = list(
+        Main = main_down,
+        Near = near_down,
+        Far  = far_down,
+        Luc  = luc_down
+    ),
+    filename = NULL,
+    fill = c("#F4A3A3", "#9DB7E8", "#A8D5A2", "#F6C98D"),
+    alpha = 0.5,
+    cex = 1.2,
+    cat.cex = 1.2,
+    margin = 0.1
+)
+
+grid::grid.newpage()
+grid::grid.draw(venn_down)
