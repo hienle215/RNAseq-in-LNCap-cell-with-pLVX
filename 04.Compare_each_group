@@ -392,3 +392,146 @@ venn_down <- venn.diagram(
 
 grid::grid.newpage()
 grid::grid.draw(venn_down)
+
+####################################################################################################
+########################## gsea
+
+library(dplyr)
+library(msigdbr)
+library(fgsea)
+main_rank <- main_dox_vs_main %>%
+    filter(
+        !is.na(stat),
+        !is.na(SYMBOL),
+        SYMBOL != ""
+    ) %>%
+    arrange(desc(stat))
+main_ranks <- main_rank$stat
+names(main_ranks) <- main_rank$SYMBOL
+
+near_rank <- near_dox_vs_near %>%
+    filter(!is.na(stat), !is.na(SYMBOL), SYMBOL != "") %>%
+    arrange(desc(stat))
+
+near_ranks <- near_rank$stat
+names(near_ranks) <- near_rank$SYMBOL
+near_ranks <- near_ranks[!duplicated(names(near_ranks))]
+
+
+far_rank <- far_dox_vs_far %>%
+    filter(!is.na(stat), !is.na(SYMBOL), SYMBOL != "") %>%
+    arrange(desc(stat))
+
+far_ranks <- far_rank$stat
+names(far_ranks) <- far_rank$SYMBOL
+far_ranks <- far_ranks[!duplicated(names(far_ranks))]
+
+
+luc_rank <- luc_dox_vs_luc %>%
+    filter(!is.na(stat), !is.na(SYMBOL), SYMBOL != "") %>%
+    arrange(desc(stat))
+
+luc_ranks <- luc_rank$stat
+names(luc_ranks) <- luc_rank$SYMBOL
+luc_ranks <- luc_ranks[!duplicated(names(luc_ranks))]
+
+hallmark <- msigdbr(
+    species = "Homo sapiens",
+    collection = "H"
+)
+
+hallmark_sets <- split(
+    hallmark$gene_symbol,
+    hallmark$gs_name
+)
+
+length(hallmark_sets)
+head(names(hallmark_sets))
+
+gsea_main <- fgsea(
+    pathways = hallmark_sets,
+    stats = main_ranks,
+    minSize = 15,
+    maxSize = 500,
+    nperm = 10000
+)
+
+gsea_near <- fgsea(
+    pathways = hallmark_sets,
+    stats = near_ranks,
+    minSize = 15,
+    maxSize = 500,
+    nperm = 10000
+) %>%
+    arrange(padj)
+
+
+gsea_far <- fgsea(
+    pathways = hallmark_sets,
+    stats = far_ranks,
+    minSize = 15,
+    maxSize = 500,
+    nperm = 10000
+) %>%
+    arrange(padj)
+
+
+gsea_luc <- fgsea(
+    pathways = hallmark_sets,
+    stats = luc_ranks,
+    minSize = 15,
+    maxSize = 500,
+    nperm = 10000
+) %>%
+    arrange(padj)
+
+#####################################################
+### take out the statistical
+gsea_summary <- bind_rows(
+    gsea_main %>% mutate(group = "Main"),
+    gsea_near %>% mutate(group = "Near"),
+    gsea_far  %>% mutate(group = "Far"),
+    gsea_luc  %>% mutate(group = "Luc")
+) %>%
+    select(group, pathway, NES, pval, padj)
+gsea_summary = gsea_summary %>%
+    filter(padj < 0.05) %>%
+    arrange(group, padj)
+
+gsea_plot <- gsea_summary %>%
+  filter(padj < 0.05) %>%
+  mutate(
+    pathway = gsub("^HALLMARK_", "", pathway),
+    pathway = gsub("_", " ", pathway),
+    log10_padj = -log10(padj)
+  )
+
+dotplot = ggplot(
+  gsea_plot,
+  aes(
+    x = group,
+    y = pathway,
+    size = log10_padj,
+    color = NES
+  )
+) +
+  geom_point() +
+  scale_color_gradient2(
+    low = "blue",
+    mid = "white",
+    high = "red",
+    midpoint = 0
+  ) +
+  labs(
+    x = NULL,
+    y = NULL,
+    size = "-log10(padj)",
+    color = "NES"
+  ) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(size = 9)
+  )
+
+ggexport(dotplot, filename = "dotplot_gsea_each_group_compare_together.tiff", width = 2500,   height = 2800,  res = 300)
