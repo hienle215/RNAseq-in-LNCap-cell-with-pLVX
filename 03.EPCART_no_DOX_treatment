@@ -1,0 +1,940 @@
+###############################################################
+## RNA-seq Differential Expression Analysis
+## Dox-induced variants vs luc control
+##
+## Comparisons:
+## main_dox vs luc_dox
+## near_dox vs luc_dox
+## far_dox vs luc_dox
+###############################################################
+
+rm(list = ls())
+
+###############################
+## Load libraries
+###############################
+
+library(tximport)
+library(DESeq2)
+library(readr)
+library(dplyr)
+library(stringr)
+library(tibble)
+library(tidyr)
+library(ggplot2)
+library(ggrepel)
+library(pheatmap)
+
+###############################
+## Set kallisto directory
+###############################
+
+kallisto.dir <- "C:/Users/leh/OneDrive - TUNI.fi/Documents/output_kallisto"
+
+###############################
+## Find abundance.tsv files
+###############################
+
+all.files <- list.files(
+    path = kallisto.dir,
+    pattern = "abundance.tsv$",
+    recursive = TRUE,
+    full.names = TRUE
+)
+
+all.sample.names <- basename(dirname(all.files))
+
+all.sample.names
+
+
+###############################################################
+## Keep only Dox samples
+###############################################################
+
+keep.idx <- grepl(
+    "^(main|near|far|luc)_[123]$",
+    all.sample.names
+)
+
+files <- all.files[keep.idx]
+sample.names <- all.sample.names[keep.idx]
+
+names(files) <- sample.names
+
+files
+sample.names
+
+###############################################################
+## Check that we have 12 samples
+###############################################################
+
+stopifnot(length(files) == 12)
+stopifnot(all(file.exists(files)))
+
+###############################################################
+## Sample information
+###############################################################
+
+sample.info <- data.frame(
+    sample = sample.names,
+    stringsAsFactors = FALSE
+)
+
+###############################################################
+## Define experimental group
+###############################################################
+
+sample.info$group <- factor(
+    sample.info$group,
+    levels = c("luc", "main", "near", "far")
+)
+
+###############################################################
+## Replicate
+###############################################################
+
+sample.info$replicate <- str_extract(
+    sample.info$sample,
+    "[123]$"
+)
+
+rownames(sample.info) <- sample.info$sample
+
+sample.info
+
+table(sample.info$group)
+
+###############################################################
+## Replicate
+###############################################################
+
+sample.info$replicate <- str_extract(
+    sample.info$sample,
+    "[123]$"
+)
+
+rownames(sample.info) <- sample.info$sample
+
+sample.info
+
+table(sample.info$group)
+
+###############################################################
+## Check expected sample numbers
+###############################################################
+
+stopifnot(
+    all(table(sample.info$group) == 3)
+)
+
+###############################################################
+## Build tx2gene
+###############################################################
+
+example <- read_tsv(
+    files[1],
+    show_col_types = FALSE
+)
+
+head(example)
+
+split.ids <- str_split_fixed(
+    example$target_id,
+    "\\|",
+    9
+)
+
+tx2gene <- tibble(
+    TXNAME = example$target_id,
+    GENEID = split.ids[,2],
+    SYMBOL = split.ids[,6]
+)
+
+tx2gene <- distinct(tx2gene)
+
+head(tx2gene)
+
+###############################################################
+## Simple tx2gene table
+###############################################################
+
+tx2gene.simple <- tx2gene %>%
+    select(TXNAME, GENEID)
+
+###############################################################
+## Import kallisto abundance
+###############################################################
+
+txi <- tximport(
+    files,
+    type = "none",
+    tx2gene = tx2gene.simple,
+    txIn = TRUE,
+    txOut = FALSE,
+    countsFromAbundance = "no",
+
+    txIdCol = "target_id",
+    abundanceCol = "tpm",
+    countsCol = "est_counts",
+    lengthCol = "eff_length",
+
+    importer = function(x)
+        read_tsv(
+            x,
+            show_col_types = FALSE
+        )
+)
+
+###############################################################
+## Gene annotation
+###############################################################
+
+gene.annot <- tx2gene %>%
+    select(GENEID, SYMBOL) %>%
+    distinct(GENEID, .keep_all = TRUE)
+
+###############################################################
+## Prepare sample information
+###############################################################
+
+sample.info <- sample.info[
+    colnames(txi$counts),
+]
+
+stopifnot(
+    all(
+        colnames(txi$counts) ==
+        rownames(sample.info)
+    )
+)
+
+###############################################################
+## Create DESeq2 object
+###############################################################
+
+dds <- DESeqDataSetFromTximport(
+    txi,
+    colData = sample.info,
+    design = ~ group
+)
+
+###############################################################
+## Filter low-count genes
+###############################################################
+
+keep <- rowSums(
+    counts(dds) >= 10
+) >= 3
+
+dds <- dds[keep, ]
+
+dim(dds)
+
+###############################################################
+## Set luc as reference
+###############################################################
+
+dds$group <- relevel(
+    dds$group,
+    ref = "luc"
+)
+
+###############################################################
+## Run DESeq2
+###############################################################
+
+dds <- DESeq(dds)
+
+resultsNames(dds)
+######################## Extract the comparison###########################################################
+###############################################################
+## MAIN vs LUC
+###############################################################
+
+res.main <- results(
+    dds,
+    contrast = c(
+        "group",
+        "main",
+        "luc"
+    )
+)
+
+res.main.df <- as.data.frame(res.main) %>%
+    rownames_to_column("GENEID") %>%
+    left_join(
+        gene.annot,
+        by = "GENEID"
+    ) %>%
+    arrange(padj)
+
+###############################################################
+## NEAR vs LUC
+###############################################################
+
+res.near <- results(
+    dds,
+    contrast = c(
+        "group",
+        "near",
+        "luc"
+    )
+)
+
+res.near.df <- as.data.frame(res.near) %>%
+    rownames_to_column("GENEID") %>%
+    left_join(
+        gene.annot,
+        by = "GENEID"
+    ) %>%
+    arrange(padj)
+
+###############################################################
+## FAR vs LUC
+###############################################################
+
+res.far <- results(
+    dds,
+    contrast = c(
+        "group",
+        "far",
+        "luc"
+    )
+)
+
+res.far.df <- as.data.frame(res.far) %>%
+    rownames_to_column("GENEID") %>%
+    left_join(
+        gene.annot,
+        by = "GENEID"
+    ) %>%
+    arrange(padj)
+
+######################### signification of genes#########################################################################
+###############################################################
+## Significant genes
+###############################################################
+
+main.sig <- res.main.df %>%
+    filter(
+        (log2FoldChange >= 1 & padj <= 0.05) |
+        (log2FoldChange <= -1 & padj <= 0.05)
+    ) %>%
+    arrange(padj)
+
+near.sig <- res.near.df %>%
+    filter(
+        (log2FoldChange >= 1 & padj <= 0.05) |
+        (log2FoldChange <= -1 & padj <= 0.05)
+    ) %>%
+    arrange(padj)
+
+far.sig <- res.far.df %>%
+    filter(
+        (log2FoldChange >= 1 & padj <= 0.05) |
+        (log2FoldChange <= -1 & padj <= 0.05)
+    ) %>%
+    arrange(padj)
+
+####################### saving significants of genes##################################################################
+###############################################################
+## Save complete DESeq2 results
+###############################################################
+
+write.csv(
+    res.main.df,
+    "DESeq2_main_dox_vs_luc_dox_all_genes.csv",
+    row.names = FALSE
+)
+
+write.csv(
+    res.near.df,
+    "DESeq2_near_dox_vs_luc_dox_all_genes.csv",
+    row.names = FALSE
+)
+
+write.csv(
+    res.far.df,
+    "DESeq2_far_dox_vs_luc_dox_all_genes.csv",
+    row.names = FALSE
+)
+
+
+###############################################################
+## Save significant genes
+##
+## Criteria:
+## log2FC >= 1 OR log2FC <= -1
+## AND padj <= 0.05
+###############################################################
+
+main.sig <- res.main.df %>%
+    filter(
+        (log2FoldChange >= 1 & padj <= 0.05) |
+        (log2FoldChange <= -1 & padj <= 0.05)
+    ) %>%
+    arrange(padj)
+
+near.sig <- res.near.df %>%
+    filter(
+        (log2FoldChange >= 1 & padj <= 0.05) |
+        (log2FoldChange <= -1 & padj <= 0.05)
+    ) %>%
+    arrange(padj)
+
+far.sig <- res.far.df %>%
+    filter(
+        (log2FoldChange >= 1 & padj <= 0.05) |
+        (log2FoldChange <= -1 & padj <= 0.05)
+    ) %>%
+    arrange(padj)
+
+
+###############################################################
+## Write significant genes to CSV
+###############################################################
+
+write.csv(
+    main.sig,
+    "DESeq2_main_dox_vs_luc_dox_significant.csv",
+    row.names = FALSE
+)
+
+write.csv(
+    near.sig,
+    "DESeq2_near_dox_vs_luc_dox_significant.csv",
+    row.names = FALSE
+)
+
+write.csv(
+    far.sig,
+    "DESeq2_far_dox_vs_luc_dox_significant.csv",
+    row.names = FALSE
+)
+
+
+###############################################################
+## Check number of significant genes
+###############################################################
+
+cat("Main significant genes:", nrow(main.sig), "\n")
+cat("Near significant genes:", nrow(near.sig), "\n")
+cat("Far significant genes:", nrow(far.sig), "\n")
+
+################################## 01. Venn plot for up regulation of genes ########################################################
+###############################################################
+## UPREGULATED GENES
+## log2FC >= 1 & padj <= 0.05
+###############################################################
+
+main.up <- main.sig %>%
+    filter(log2FoldChange >= 1) %>%
+    filter(!is.na(SYMBOL)) %>%
+    pull(SYMBOL) %>%
+    unique()
+
+near.up <- near.sig %>%
+    filter(log2FoldChange >= 1) %>%
+    filter(!is.na(SYMBOL)) %>%
+    pull(SYMBOL) %>%
+    unique()
+
+far.up <- far.sig %>%
+    filter(log2FoldChange >= 1) %>%
+    filter(!is.na(SYMBOL)) %>%
+    pull(SYMBOL) %>%
+    unique()
+
+
+###############################################################
+## Check numbers
+###############################################################
+
+length(main.up)
+length(near.up)
+length(far.up)
+
+
+#####################################################################################################################################
+# keep only protein-coding genes
+#####################################################################################################################################
+
+library(rtracklayer)
+gtf <- import("gencode.v48.annotation.gtf.gz")
+head(as.data.frame(gtf))
+library(dplyr)
+gene_annotation <- as.data.frame(gtf) %>%
+  dplyr::filter(type == "gene") %>%
+  dplyr::select(gene_id, gene_name, gene_type) %>%
+  dplyr::distinct()
+main.annotated <- main.sig %>%
+  dplyr::left_join(gene_annotation, by = c("GENEID" = "gene_id"))
+
+near.annotated <- near.sig %>%
+  dplyr::left_join(gene_annotation, by = c("GENEID" = "gene_id"))
+
+far.annotated <- far.sig %>%
+  dplyr::left_join(gene_annotation, by = c("GENEID" = "gene_id"))
+table(main.annotated$gene_type, useNA = "ifany")
+
+# Extract only UPREGULATED protein-coding genes
+main.up.protein <- main.annotated %>%
+  dplyr::filter(
+    log2FoldChange >= 1,
+    padj <= 0.05,
+    gene_type == "protein_coding"
+  ) %>%
+  dplyr::pull(gene_name) %>%
+  unique()
+
+near.up.protein <- near.annotated %>%
+  dplyr::filter(
+    log2FoldChange >= 1,
+    padj <= 0.05,
+    gene_type == "protein_coding"
+  ) %>%
+  dplyr::pull(gene_name) %>%
+  unique()
+
+far.up.protein <- far.annotated %>%
+  dplyr::filter(
+    log2FoldChange >= 1,
+    padj <= 0.05,
+    gene_type == "protein_coding"
+  ) %>%
+  dplyr::pull(gene_name) %>%
+  unique()
+
+length(main.up.protein)
+length(near.up.protein)
+length(far.up.protein)
+
+library(VennDiagram)
+venn.up <- venn.diagram(
+  x = list(
+    Main = main.up.protein,
+    Near = near.up.protein,
+    Far  = far.up.protein
+  ),
+
+  filename = NULL,
+
+  fill = c(
+    "#9ECAE1",  # soft blue
+    "#FDD0A2",  # soft orange
+    "#A1D99B"   # soft green
+  ),
+
+  alpha = 0.5,
+
+  cex = 1.5,
+  cat.cex = 1.5,
+
+  main = "Upregulated protein-coding genes",
+  main.cex = 1.5,
+
+  fontfamily = "Arial",
+  cat.fontfamily = "Arial"
+)
+
+grid::grid.newpage()
+grid::grid.draw(venn.up)
+
+shared.protein.up <- Reduce(
+  intersect,
+    list(
+    main.up.protein,
+    near.up.protein,
+    far.up.protein
+  ))
+shared.protein.up
+
+# Extract only DOWNREGULATED protein-coding genes
+main.down.protein <- main.annotated %>%
+  dplyr::filter(
+    log2FoldChange <= -1,
+    padj <= 0.05,
+    gene_type == "protein_coding"
+  ) %>%
+  dplyr::pull(gene_name) %>%
+  unique()
+
+near.down.protein <- near.annotated %>%
+  dplyr::filter(
+    log2FoldChange <= -1,
+    padj <= 0.05,
+    gene_type == "protein_coding"
+  ) %>%
+  dplyr::pull(gene_name) %>%
+  unique()
+
+far.down.protein <- far.annotated %>%
+  dplyr::filter(
+    log2FoldChange <= -1,
+    padj <= 0.05,
+    gene_type == "protein_coding"
+  ) %>%
+  dplyr::pull(gene_name) %>%
+  unique()
+
+length(main.down.protein)
+length(near.down.protein)
+length(far.down.protein)
+
+venn.down <- venn.diagram(
+  x = list(
+    Main = main.down.protein,
+    Near = near.down.protein,
+    Far  = far.down.protein
+  ),
+
+  filename = NULL,
+
+  fill = c(
+    "#9ECAE1",  # soft blue
+    "#FDD0A2",  # soft orange
+    "#A1D99B"   # soft green
+  ),
+
+  alpha = 0.5,
+
+  cex = 1.5,
+  cat.cex = 1.5,
+
+  main = "Downregulated protein-coding genes",
+  main.cex = 1.5,
+
+  fontfamily = "Arial",
+  cat.fontfamily = "Arial"
+)
+
+grid::grid.newpage()
+grid::grid.draw(venn.down)
+shared.protein.down <- Reduce(
+  intersect,
+  list(
+    main.down.protein,
+    near.down.protein,
+    far.down.protein
+  )
+)
+shared.protein.down
+
+####################################################################################################################
+### heatmap of protein-coding share the groups
+ordered.genes <- c(
+    shared.protein.up,
+    shared.protein.down
+)
+
+###############################################################
+## Create FC data for the genes in ordered.genes
+###############################################################
+
+fc.data <- data.frame(
+    SYMBOL = ordered.genes,
+
+    Main = main.annotated$log2FoldChange[
+        match(ordered.genes, main.annotated$gene_name)
+    ],
+
+    Near = near.annotated$log2FoldChange[
+        match(ordered.genes, near.annotated$gene_name)
+    ],
+
+    Far = far.annotated$log2FoldChange[
+        match(ordered.genes, far.annotated$gene_name)
+    ],
+
+    stringsAsFactors = FALSE
+)
+
+###############################################################
+## Check FC data
+###############################################################
+
+fc.data
+fc.mat <- fc.data[, c("Main", "Near", "Far")]
+
+rownames(fc.mat) <- fc.data$SYMBOL
+
+fc.mat <- fc.mat[ordered.genes, , drop = FALSE]
+
+fc.mat <- fc.mat[ordered.genes, ]
+
+heatmap <- pheatmap(
+    fc.mat,
+
+    scale = "none",
+
+    cluster_rows = FALSE,
+    cluster_cols = FALSE,
+
+    border_color = NA,
+
+    fontsize_row = 8,
+    fontsize_col = 12,
+
+    main = "Shared differentially expressed protein-coding genes",
+
+    color = colorRampPalette(
+        c("royalblue3", "white", "red3")
+    )(100),
+
+    gaps_row = length(shared.protein.up)
+)
+
+setwd("C:/Users/leh/OneDrive - TUNI.fi/Desktop/lncRNA_prostate_cancer/RNAseq_Novogene_2026")
+ggexport(heatmap, filename = "heatmap_shared_gene_NO_treatment_protein_coding.tiff", width = 1200,   height = 1800,  res = 300)
+
+############################################################################################################################################
+##### Gene set calculation
+############################################################################################################################################
+library(fgsea)
+library(msigdbr)
+library(dplyr)
+library(ggplot2)
+hallmark <- msigdbr(
+    species = "Homo sapiens",
+    collection = "H"
+)
+hallmark_sets <- split(
+    hallmark$gene_symbol,
+    hallmark$gs_name
+)
+length(hallmark_sets)
+head(names(hallmark_sets))
+make_rank <- function(df) {
+    
+    x <- df %>%
+        filter(
+            !is.na(SYMBOL),
+            SYMBOL != "",
+            !is.na(stat)
+        ) %>%
+        group_by(SYMBOL) %>%
+        slice_max(
+            order_by = abs(stat),
+            n = 1
+        ) %>%
+        ungroup()
+    
+    rank <- x$stat
+    names(rank) <- x$SYMBOL
+    
+    rank <- sort(rank, decreasing = TRUE)
+    
+    return(rank)
+}
+rank.main <- make_rank(res.main.df)
+rank.near <- make_rank(res.near.df)
+rank.far  <- make_rank(res.far.df)
+head(rank.main)
+head(rank.near)
+head(rank.far)
+gsea.main <- fgsea(
+    pathways = hallmark_sets,
+    stats = rank.main,
+    minSize = 15,
+    maxSize = 500
+)
+
+gsea.near <- fgsea(
+    pathways = hallmark_sets,
+    stats = rank.near,
+    minSize = 15,
+    maxSize = 500
+)
+
+gsea.far <- fgsea(
+    pathways = hallmark_sets,
+    stats = rank.far,
+    minSize = 15,
+    maxSize = 500
+)
+
+
+
+gsea.main$Comparison <- "Main"
+gsea.near$Comparison <- "Near"
+gsea.far$Comparison <- "Far"
+gsea.all <- rbind(
+  gsea.main,
+  gsea.near,
+  gsea.far
+)
+table(gsea.all$Comparison)
+gsea.all <- rbind(gsea.main,gsea.near, gsea.far)
+head(gsea.all)
+table(gsea.all$Comparison)
+library(dplyr)
+library(tidyr)
+ 
+nes.data <- gsea.all %>% dplyr::select(pathway, Comparison, NES)
+nes.wide <- nes.data %>% tidyr::pivot_wider(names_from = Comparison,values_from = NES)
+head(nes.wide)
+nes.mat <- as.data.frame(nes.wide) 
+rownames(nes.mat) <- nes.mat$pathway
+nes.mat$pathway <- NULL 
+nes.mat <- as.matrix(nes.mat)
+nes.mat <- nes.mat[, c("Main", "Near", "Far")]
+dim(nes.mat)
+
+head(nes.mat)
+
+library(pheatmap) 
+heatmap_GSEA= pheatmap(nes.mat, scale = "none",cluster_rows = TRUE,cluster_cols = FALSE, border_color = NA,color = colorRampPalette( c("royalblue3", "white", "red3") )(100), fontsize_row = 8, fontsize_col = 12,main = "GSEA pathway enrichment" )
+ggexport(heatmap_GSEA, filename = "heatmap_GSEA_shared_gene_NO_treatment_ALL_GSEA.tiff", width = 2000,   height = 2800,  res = 300)
+
+#### Gene set involve in the different expression genes with significant
+gsea.main.sig = gsea.main %>%
+  dplyr::filter(padj < 0.05) %>%
+  dplyr::arrange(padj)
+
+gsea.near.sig = gsea.near %>%
+  dplyr::filter(padj < 0.05) %>%
+  dplyr::arrange(padj)
+
+gsea.far.sig = gsea.near %>%
+  dplyr::filter(padj < 0.05) %>%
+  dplyr::arrange(padj)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# -----------------------------
+# 1. Select pathways
+# -----------------------------
+
+gsea_all <- bind_rows(
+  gsea.main.sig %>% mutate(Variant = "Main"),
+  gsea.near.sig %>% mutate(Variant = "Near"),
+  gsea.far.sig  %>% mutate(Variant = "Far")
+)
+
+
+###############################################################
+## 2. Use all pathways present in your data
+###############################################################
+
+pathways <- unique(gsea_all$pathway)
+
+
+###############################################################
+## 3. Prepare data for dotplot
+###############################################################
+
+gsea_plot <- gsea_all %>%
+  filter(pathway %in% pathways) %>%
+  mutate(
+    neg_log10_padj = -log10(padj)
+  ) %>%
+  select(
+    pathway,
+    Variant,
+    NES,
+    padj,
+    neg_log10_padj
+  )
+
+
+###############################################################
+## 4. Add missing pathway/variant combinations
+###############################################################
+
+gsea_plot <- gsea_plot %>%
+  complete(
+    pathway = pathways,
+    Variant = c("Main", "Near", "Far")
+  )
+
+
+###############################################################
+## 5. Set pathway order
+##    Order by the strongest significance
+###############################################################
+
+pathway_order <- gsea_all %>%
+  group_by(pathway) %>%
+  summarise(
+    best_padj = min(padj, na.rm = TRUE)
+  ) %>%
+  arrange(best_padj) %>%
+  pull(pathway)
+
+gsea_plot$pathway <- factor(
+  gsea_plot$pathway,
+  levels = rev(pathway_order)
+)
+
+gsea_plot$Variant <- factor(
+  gsea_plot$Variant,
+  levels = c("Main", "Near", "Far")
+)
+
+
+###############################################################
+## 6. Dotplot
+###############################################################
+
+p <- ggplot(
+  gsea_plot,
+  aes(
+    x = Variant,
+    y = pathway
+  )
+) +
+
+  geom_point(
+    aes(
+      size = neg_log10_padj,
+      color = NES
+    ),
+    na.rm = TRUE
+  ) +
+
+  scale_color_gradient2(
+    low = "blue",
+    mid = "white",
+    high = "red",
+    midpoint = 0,
+    name = "NES"
+  ) +
+
+  scale_size_continuous(
+    name = "-log10(padj)",
+    range = c(2, 8)
+  ) +
+
+  labs(
+    x = NULL,
+    y = NULL,
+    title = "GSEA Hallmark pathways"
+  ) +
+
+  theme_bw() +
+
+  theme(
+    axis.text.x = element_text(
+      size = 12,
+      face = "bold"
+    ),
+
+    axis.text.y = element_text(
+      size = 10
+    ),
+
+    plot.title = element_text(
+      size = 14,
+      face = "bold"
+    ),
+
+    panel.grid.major = element_line(
+      color = "grey90"
+    ),
+
+    panel.grid.minor = element_blank()
+  )
+
+p
+ggexport(p, filename = "dotplot_GSEA_shared_gene_NO_treatment_ALL_GSEA.tiff", width = 2500,   height = 2000,  res = 300)
