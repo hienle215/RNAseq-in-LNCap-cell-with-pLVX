@@ -717,6 +717,9 @@ gsea.far <- fgsea(
     minSize = 15,
     maxSize = 500
 )
+
+
+
 gsea.main$Comparison <- "Main"
 gsea.near$Comparison <- "Near"
 gsea.far$Comparison <- "Far"
@@ -771,5 +774,151 @@ library(pheatmap)
 +   main = "GSEA pathway enrichment"
 + )
 
-#### Gene set involve in the different expression genes
+#### Gene set involve in the different expression genes with significant
+gsea.main.sig = gsea.main %>%
+  dplyr::filter(padj < 0.05) %>%
+  dplyr::arrange(padj)
+
+gsea.near.sig = gsea.near %>%
+  dplyr::filter(padj < 0.05) %>%
+  dplyr::arrange(padj)
+
+gsea.far.sig = gsea.near %>%
+  dplyr::filter(padj < 0.05) %>%
+  dplyr::arrange(padj)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# -----------------------------
+# 1. Select pathways
+# -----------------------------
+
+pathways <- c(
+  "HALLMARK_MYC_TARGETS_V1",
+  "HALLMARK_MYC_TARGETS_V2",
+  "HALLMARK_E2F_TARGETS",
+  "HALLMARK_G2M_CHECKPOINT",
+  "HALLMARK_MTORC1_SIGNALING",
+  "HALLMARK_OXIDATIVE_PHOSPHORYLATION",
+  "HALLMARK_FATTY_ACID_METABOLISM",
+  "HALLMARK_GLYCOLYSIS",
+  "HALLMARK_REACTIVE_OXYGEN_SPECIES_PATHWAY",
+  "HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION",
+  "HALLMARK_APICAL_JUNCTION",
+  "HALLMARK_HYPOXIA",
+  "HALLMARK_HEME_METABOLISM",
+  "HALLMARK_CHOLESTEROL_HOMEOSTASIS"
+)
+
+
+# -----------------------------
+# 2. Combine the three GSEA results
+# -----------------------------
+
+gsea_all <- bind_rows(
+  gsea.main.sig %>% mutate(Variant = "Main"),
+  gsea.near.sig %>% mutate(Variant = "Near"),
+  gsea.far.sig  %>% mutate(Variant = "Far")
+)
+
+
+# -----------------------------
+# 3. Keep selected pathways
+# -----------------------------
+
+gsea_plot <- gsea_all %>%
+  filter(pathway %in% pathways) %>%
+  mutate(
+    neg_log10_padj = -log10(padj)
+  )
+
+
+# -----------------------------
+# 4. Add missing pathways
+#    so they appear as blank
+# -----------------------------
+
+gsea_plot <- gsea_plot %>%
+  complete(
+    pathway = pathways,
+    Variant = c("Main", "Near", "Far")
+  )
+
+
+# -----------------------------
+# 5. Set pathway order
+# -----------------------------
+
+gsea_plot$pathway <- factor(
+  gsea_plot$pathway,
+  levels = rev(pathways)
+)
+
+gsea_plot$Variant <- factor(
+  gsea_plot$Variant,
+  levels = c("Main", "Near", "Far")
+)
+
+
+# -----------------------------
+# 6. Dot plot
+# -----------------------------
+
+p <- ggplot(
+  gsea_plot,
+  aes(
+    x = Variant,
+    y = pathway
+  )
+) +
+  
+  geom_point(
+    aes(
+      size = neg_log10_padj,
+      color = NES
+    ),
+    na.rm = TRUE
+  ) +
+  
+  scale_color_gradient2(
+    low = "blue",
+    mid = "white",
+    high = "red",
+    midpoint = 0,
+    name = "NES"
+  ) +
+  
+  scale_size_continuous(
+    name = "-log10(padj)",
+    range = c(2, 8)
+  ) +
+  
+  labs(
+    x = NULL,
+    y = NULL,
+    title = "GSEA Hallmark pathways"
+  ) +
+  
+  theme_bw() +
+  
+  theme(
+    axis.text.x = element_text(
+      size = 12,
+      face = "bold"
+    ),
+    axis.text.y = element_text(
+      size = 10
+    ),
+    plot.title = element_text(
+      size = 14,
+      face = "bold"
+    ),
+    panel.grid.major = element_line(
+      color = "grey90"
+    ),
+    panel.grid.minor = element_blank()
+  )
+
+p
 
