@@ -1,0 +1,183 @@
+# ============================================================
+# EPCART expression - Tampere PC cohort
+# Natural scale - no log transformation
+# Poster-quality version
+# ============================================================
+
+library(ggplot2)
+library(dplyr)
+
+# ------------------------------------------------------------
+# 1. Enter the data
+# ------------------------------------------------------------
+
+df <- read.table(text = "
+Sample    EPCART
+BPH_337   1.210
+BPH_456   0.000
+BPH_651   2.470
+BPH_652   2.390
+BPH_656   7.390
+BPH_659   1.630
+BPH_665   6.650
+BPH_671   5.750
+BPH_677   0.000
+BPH_688   4.140
+BPH_689   1.500
+BPH_701   16.890
+PC_470    320.060
+PC_4538   1.050
+PC_4786   78.510
+PC_4906   6635.180
+PC_4980   106.610
+PC_5934   10.970
+PC_6102   3.750
+PC_6174   386.100
+PC_6342   0.360
+PC_6488   32.670
+PC_6864   0.000
+PC_7875   6.840
+PC_8131   0.800
+PC_8438   1352.050
+PC_9324   0.000
+PC_10286  3.470
+PC_12517  3.450
+PC_13943  7728.730
+PC_14670  5142.730
+PC_15194  2047.480
+PC_15420  18.840
+PC_15760  825.210
+PC_17163  4446.550
+PC_17447  9727.080
+PC_18307  2514.600
+PC_19403  3.180
+PC_20873  103.040
+PC_22392  16.170
+PC_22603  9129.950
+PC_24173  2.380
+CRPC_261  32.750
+CRPC_278  371.600
+CRPC_305  5966.450
+CRPC_348  2534.280
+CRPC_435  43.810
+CRPC_489  976.470
+CRPC_530  10138.010
+CRPC_531  0.000
+CRPC_539  23.670
+CRPC_541  8.550
+CRPC_542  74.960
+CRPC_543  74.130
+CRPC_697  40.160
+", header = TRUE)
+
+# ------------------------------------------------------------
+# 2. Natural-scale barplot
+# ------------------------------------------------------------
+
+p <- ggplot(df, aes(x = Sample, y = EPCART)) +
+
+  geom_col(
+    fill = "#4F81BD",
+    colour = "black",
+    linewidth = 0.4,
+    width = 0.8
+  ) +
+
+  scale_y_continuous(
+    limits = c(0, 11000),
+    breaks = c(0, 2000, 4000, 6000, 8000, 10000),
+    labels = c(
+      "0",
+      "2,000",
+      "4,000",
+      "6,000",
+      "8,000",
+      "10,000"
+    ),
+    expand = expansion(mult = c(0, 0.02))
+  ) +
+
+  labs(
+    title = "Tampere PC cohort",
+    x = "Patient name",
+    y = "EPCART expression"
+  ) +
+
+  theme_classic(base_size = 14) +
+
+  theme(
+    plot.title = element_text(
+      hjust = 0.5,
+      face = "bold",
+      size = 18
+    ),
+
+    axis.title.x = element_text(
+      face = "bold",
+      size = 15
+    ),
+
+    axis.title.y = element_text(
+      face = "bold",
+      size = 15
+    ),
+
+    axis.text.x = element_text(
+      angle = 90,
+      hjust = 1,
+      vjust = 0.5,
+      size = 9,
+      colour = "black"
+    ),
+
+    axis.text.y = element_text(
+      size = 11,
+      colour = "black"
+    ),
+
+    axis.line = element_line(
+      colour = "black",
+      linewidth = 0.6
+    ),
+
+    axis.ticks = element_line(
+      colour = "black",
+      linewidth = 0.5
+    ),
+
+    plot.margin = margin(15, 15, 15, 15)
+  )
+
+# Display
+p
+
+# ------------------------------------------------------------
+# 3. Save high-quality PDF for poster
+# ------------------------------------------------------------
+
+ggsave(
+  "EPCART_Tampere_PC_cohort_natural.pdf",
+  plot = p,
+  width = 12,
+  height = 7,
+  units = "in",
+  device = cairo_pdf
+)
+
+# ------------------------------------------------------------
+# 4. Save 600 dpi TIFF
+# ------------------------------------------------------------
+
+ggsave(
+  "EPCART_Tampere_PC_cohort_natural.tiff",
+  plot = p,
+  width = 12,
+  height = 7,
+  units = "in",
+  dpi = 600,
+  compression = "lzw"
+)
+
+setwd("C:/Users/leh/OneDrive - TUNI.fi/Desktop/lncRNA_prostate_cancer/RNAseq_Novogene_2026/poster")
+library(ggpubr)
+ggexport(p, filename = "PCART_PCcohort.tiff", width = 2000,   height = 1200,  res = 300)
