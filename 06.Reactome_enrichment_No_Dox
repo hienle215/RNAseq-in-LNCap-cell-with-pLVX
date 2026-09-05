@@ -1,0 +1,141 @@
+##############################################################################
+# EPCART RNA-seq
+# Load DESeq2 significant gene tables
+# Filter main / near / far to protein-coding genes
+##############################################################################
+
+library(readr)
+library(readxl)
+library(dplyr)
+library(stringr)
+library(tibble)
+
+##############################################################################
+# 1. Set working directory
+##############################################################################
+
+data_dir <- "C:/Users/leh/OneDrive - TUNI.fi/Desktop/lncRNA_prostate_cancer/RNAseq_Novogene_2026/data"
+
+setwd(data_dir)
+
+##############################################################################
+# 2. Check files
+##############################################################################
+
+list.files(data_dir)
+##############################################################################
+# 3. Load DESeq2 result files
+##############################################################################
+
+# Knockdown EPCART
+del4_WT  <- read_excel("DESeq2_del4_WT_significant.xlsx")
+del56_WT <- read_excel("DESeq2_del56_WT_significant.xlsx")
+
+# EPCART overexpression
+far_dox_vs_luc_dox  <- read_csv("DESeq2_far_dox_vs_luc_dox_significant.csv")
+main_dox_vs_luc_dox <- read_csv("DESeq2_main_dox_vs_luc_dox_significant.csv")
+near_dox_vs_luc_dox <- read_csv("DESeq2_near_dox_vs_luc_dox_significant.csv")
+
+far_vs_luc  <- read_csv("DESeq2_far_vs_luc_significant.csv")
+main_vs_luc <- read_csv("DESeq2_main_vs_luc_significant.csv")
+near_vs_luc <- read_csv("DESeq2_near_vs_luc_significant.csv")
+
+#################################################################################
+#4. Make a gene list of up and down regulation
+#####################################################################################
+remove_ensembl_version <- function(x) {
+  sub("\\..*$", "", x)
+}
+
+main_vs_luc <- main_vs_luc %>%
+  mutate(GENEID_clean = remove_ensembl_version(GENEID))
+
+near_vs_luc <- near_vs_luc %>%
+  mutate(GENEID_clean = remove_ensembl_version(GENEID))
+
+far_vs_luc <- far_vs_luc %>%
+  mutate(GENEID_clean = remove_ensembl_version(GENEID))
+
+main_dox_vs_luc_dox <- main_dox_vs_luc_dox %>%
+  mutate(GENEID_clean = remove_ensembl_version(GENEID))
+
+near_dox_vs_luc_dox <- near_dox_vs_luc_dox %>%
+  mutate(GENEID_clean = remove_ensembl_version(GENEID))
+
+far_dox_vs_luc_dox <- far_dox_vs_luc_dox %>%
+  mutate(GENEID_clean = remove_ensembl_version(GENEID))
+
+del4_WT <- del4_WT %>%
+  mutate(GENEID_clean = remove_ensembl_version(GENEID))
+
+del56_WT <- del56_WT %>%
+  mutate(GENEID_clean = remove_ensembl_version(GENEID))
+
+# MAIN
+##############################################################################
+
+main_up <- main.protein %>%
+  filter(log2FoldChange > 0) %>%
+  pull(GENEID_clean) %>%
+  unique()
+
+main_down <- main.protein %>%
+  filter(log2FoldChange < 0) %>%
+  pull(GENEID_clean) %>%
+  unique()
+
+main_up_dox <- main.dox.protein %>%
+  filter(log2FoldChange > 0) %>%
+  pull(GENEID_clean) %>%
+  unique()
+
+main_down_dox <- main.dox.protein %>%
+  filter(log2FoldChange < 0) %>%
+  pull(GENEID_clean) %>%
+  unique()
+##############################################################################
+# NEAR
+##############################################################################
+
+near_up <- near.protein %>%
+  filter(log2FoldChange > 0) %>%
+  pull(GENEID_clean) %>%
+  unique()
+
+near_down <- near.protein %>%
+  filter(log2FoldChange < 0) %>%
+  pull(GENEID_clean) %>%
+  unique()
+
+near_up_dox <- near.dox.protein %>%
+  filter(log2FoldChange > 0) %>%
+  pull(GENEID_clean) %>%
+  unique()
+
+near_down_dox <- near.dox.protein %>%
+  filter(log2FoldChange < 0) %>%
+  pull(GENEID_clean) %>%
+  unique()
+##############################################################################
+# FAR
+##############################################################################
+
+far_up <- far.protein %>%
+  filter(log2FoldChange > 0) %>%
+  pull(GENEID_clean) %>%
+  unique()
+
+far_down <- far.protein %>%
+  filter(log2FoldChange < 0) %>%
+  pull(GENEID_clean) %>%
+  unique()
+
+far_up_dox <- far.dox.protein %>%
+  filter(log2FoldChange > 0) %>%
+  pull(GENEID_clean) %>%
+  unique()
+
+far_down_dox <- far.dox.protein %>%
+  filter(log2FoldChange < 0) %>%
+  pull(GENEID_clean) %>%
+  unique()
