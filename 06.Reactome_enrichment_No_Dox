@@ -74,22 +74,22 @@ del56_WT <- del56_WT %>%
 # MAIN
 ##############################################################################
 
-main_up <- main.protein %>%
+main_up <- main_vs_luc %>%
   filter(log2FoldChange > 0) %>%
   pull(GENEID_clean) %>%
   unique()
 
-main_down <- main.protein %>%
+main_down <- main_vs_luc %>%
   filter(log2FoldChange < 0) %>%
   pull(GENEID_clean) %>%
   unique()
 
-main_up_dox <- main.dox.protein %>%
+main_up_dox <- main_dox_vs_luc_dox %>%
   filter(log2FoldChange > 0) %>%
   pull(GENEID_clean) %>%
   unique()
 
-main_down_dox <- main.dox.protein %>%
+main_down_dox <- main_dox_vs_luc_dox %>%
   filter(log2FoldChange < 0) %>%
   pull(GENEID_clean) %>%
   unique()
@@ -97,22 +97,22 @@ main_down_dox <- main.dox.protein %>%
 # NEAR
 ##############################################################################
 
-near_up <- near.protein %>%
+near_up <- near_vs_luc %>%
   filter(log2FoldChange > 0) %>%
   pull(GENEID_clean) %>%
   unique()
 
-near_down <- near.protein %>%
+near_down <- near_vs_luc %>%
   filter(log2FoldChange < 0) %>%
   pull(GENEID_clean) %>%
   unique()
 
-near_up_dox <- near.dox.protein %>%
+near_up_dox <- near_dox_vs_luc_dox %>%
   filter(log2FoldChange > 0) %>%
   pull(GENEID_clean) %>%
   unique()
 
-near_down_dox <- near.dox.protein %>%
+near_down_dox <- near_dox_vs_luc_dox %>%
   filter(log2FoldChange < 0) %>%
   pull(GENEID_clean) %>%
   unique()
@@ -120,22 +120,277 @@ near_down_dox <- near.dox.protein %>%
 # FAR
 ##############################################################################
 
-far_up <- far.protein %>%
+far_up <- far_vs_luc %>%
   filter(log2FoldChange > 0) %>%
   pull(GENEID_clean) %>%
   unique()
 
-far_down <- far.protein %>%
+far_down <- far_vs_luc %>%
   filter(log2FoldChange < 0) %>%
   pull(GENEID_clean) %>%
   unique()
 
-far_up_dox <- far.dox.protein %>%
+far_up_dox <- far_dox_vs_luc_dox %>%
   filter(log2FoldChange > 0) %>%
   pull(GENEID_clean) %>%
   unique()
 
-far_down_dox <- far.dox.protein %>%
+far_down_dox <- far_dox_vs_luc_dox %>%
   filter(log2FoldChange < 0) %>%
   pull(GENEID_clean) %>%
   unique()
+
+####################################################################################
+# 05. Reactome enrichment
+########################################################################################
+library(ReactomePA)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(dplyr)
+convert_ensembl_to_entrez <- function(genes) {
+  
+  converted <- bitr(
+    genes,
+    fromType = "ENSEMBL",
+    toType = "ENTREZID",
+    OrgDb = org.Hs.eg.db
+  )
+  
+  converted %>%
+    filter(!is.na(ENTREZID)) %>%
+    pull(ENTREZID) %>%
+    unique()
+}
+
+main_up_entrez <- convert_ensembl_to_entrez(main_up)
+main_down_entrez <- convert_ensembl_to_entrez(main_down)
+main_up_dox_entrez <- convert_ensembl_to_entrez(main_up_dox)
+main_down_dox_entrez <- convert_ensembl_to_entrez(main_down_dox)
+
+near_up_entrez <- convert_ensembl_to_entrez(near_up)
+near_down_entrez <- convert_ensembl_to_entrez(near_down)
+near_up_dox_entrez <- convert_ensembl_to_entrez(near_up_dox)
+near_down_dox_entrez <- convert_ensembl_to_entrez(near_down_dox)
+
+far_up_entrez <- convert_ensembl_to_entrez(far_up)
+far_down_entrez <- convert_ensembl_to_entrez(far_down)
+far_up_dox_entrez <- convert_ensembl_to_entrez(far_up_dox)
+far_down_dox_entrez <- convert_ensembl_to_entrez(far_down_dox)
+
+far_up_reactome <- enrichPathway(
+  gene = far_up_entrez,
+  organism = "human",
+  pvalueCutoff = 0.05,
+  pAdjustMethod = "BH",
+  readable = TRUE
+)
+
+far_down_reactome <- enrichPathway(
+  gene = far_down_entrez,
+  organism = "human",
+  pvalueCutoff = 0.05,
+  pAdjustMethod = "BH",
+  readable = TRUE
+)
+
+far_up_dox_reactome <- enrichPathway(
+  gene = far_up_dox_entrez,
+  organism = "human",
+  pvalueCutoff = 0.05,
+  pAdjustMethod = "BH",
+  readable = TRUE
+)
+
+far_down_dox_reactome <- enrichPathway(
+  gene = far_down_dox_entrez,
+  organism = "human",
+  pvalueCutoff = 0.05,
+  pAdjustMethod = "BH",
+  readable = TRUE
+)
+
+far_up_sig <- as.data.frame(far_up_reactome) %>%
+  filter(p.adjust < 0.05) %>%
+  arrange(p.adjust)
+
+far_down_sig <- as.data.frame(far_down_reactome) %>%
+  filter(p.adjust < 0.05) %>%
+  arrange(p.adjust)
+
+far_up_dox_sig <- as.data.frame(far_up_dox_reactome) %>%
+  filter(p.adjust < 0.05) %>%
+  arrange(p.adjust)
+
+far_down_dox_sig <- as.data.frame(far_down_dox_reactome) %>%
+  filter(p.adjust < 0.05) %>%
+  arrange(p.adjust)
+
+dotplot(
+  far_up_reactome,
+  showCategory = 15,
+  font.size = 10
+)
+
+dotplot(
+  far_down_reactome,
+  showCategory = 15,
+  font.size = 10
+)
+
+dotplot(
+  far_up_dox_reactome,
+  showCategory = 15,
+  font.size = 10
+)
+
+dotplot(
+  far_down_dox_reactome,
+  showCategory = 15,
+  font.size = 10
+)
+
+# main
+main_up_reactome <- enrichPathway(
+  gene = main_up_entrez,
+  organism = "human",
+  pvalueCutoff = 0.05,
+  pAdjustMethod = "BH",
+  readable = TRUE
+)
+
+main_down_reactome <- enrichPathway(
+  gene = main_down_entrez,
+  organism = "human",
+  pvalueCutoff = 0.05,
+  pAdjustMethod = "BH",
+  readable = TRUE
+)
+
+main_up_dox_reactome <- enrichPathway(
+  gene = main_up_dox_entrez,
+  organism = "human",
+  pvalueCutoff = 0.05,
+  pAdjustMethod = "BH",
+  readable = TRUE
+)
+
+main_down_dox_reactome <- enrichPathway(
+  gene = main_down_dox_entrez,
+  organism = "human",
+  pvalueCutoff = 0.05,
+  pAdjustMethod = "BH",
+  readable = TRUE
+)
+
+main_up_sig <- as.data.frame(main_up_reactome) %>%
+  filter(p.adjust < 0.05) %>%
+  arrange(p.adjust)
+
+main_down_sig <- as.data.frame(main_down_reactome) %>%
+  filter(p.adjust < 0.05) %>%
+  arrange(p.adjust)
+
+main_up_dox_sig <- as.data.frame(main_up_dox_reactome) %>%
+  filter(p.adjust < 0.05) %>%
+  arrange(p.adjust)
+
+main_down_dox_sig <- as.data.frame(main_down_dox_reactome) %>%
+  filter(p.adjust < 0.05) %>%
+  arrange(p.adjust)
+
+dotplot(
+  main_up_reactome,
+  showCategory = 15,
+  font.size = 10
+)
+
+dotplot(
+  main_down_reactome,
+  showCategory = 15,
+  font.size = 10
+)
+
+dotplot(
+  main_up_dox_reactome,
+  showCategory = 15,
+  font.size = 10
+)
+
+dotplot(
+  main_down_dox_reactome,
+  showCategory = 15,
+  font.size = 10
+)
+
+#near
+near_up_reactome <- enrichPathway(
+  gene = near_up_entrez,
+  organism = "human",
+  pvalueCutoff = 0.05,
+  pAdjustMethod = "BH",
+  readable = TRUE
+)
+
+near_down_reactome <- enrichPathway(
+  gene = near_down_entrez,
+  organism = "human",
+  pvalueCutoff = 0.05,
+  pAdjustMethod = "BH",
+  readable = TRUE
+)
+
+near_up_dox_reactome <- enrichPathway(
+  gene = near_up_dox_entrez,
+  organism = "human",
+  pvalueCutoff = 0.05,
+  pAdjustMethod = "BH",
+  readable = TRUE
+)
+
+near_down_dox_reactome <- enrichPathway(
+  gene = near_down_dox_entrez,
+  organism = "human",
+  pvalueCutoff = 0.05,
+  pAdjustMethod = "BH",
+  readable = TRUE
+)
+
+near_up_sig <- as.data.frame(near_up_reactome) %>%
+  filter(p.adjust < 0.05) %>%
+  arrange(p.adjust)
+
+near_down_sig <- as.data.frame(near_down_reactome) %>%
+  filter(p.adjust < 0.05) %>%
+  arrange(p.adjust)
+
+near_up_dox_sig <- as.data.frame(near_up_dox_reactome) %>%
+  filter(p.adjust < 0.05) %>%
+  arrange(p.adjust)
+
+near_down_dox_sig <- as.data.frame(near_down_dox_reactome) %>%
+  filter(p.adjust < 0.05) %>%
+  arrange(p.adjust)
+
+dotplot(
+  near_up_reactome,
+  showCategory = 15,
+  font.size = 10
+)
+
+dotplot(
+  near_down_reactome,
+  showCategory = 15,
+  font.size = 10
+)
+
+dotplot(
+  near_up_dox_reactome,
+  showCategory = 15,
+  font.size = 10
+)
+
+dotplot(
+  near_down_dox_reactome,
+  showCategory = 15,
+  font.size = 10
+)
