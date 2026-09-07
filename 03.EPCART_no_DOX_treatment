@@ -784,6 +784,7 @@ head(nes.mat)
 
 library(pheatmap) 
 heatmap_GSEA= pheatmap(nes.mat, scale = "none",cluster_rows = TRUE,cluster_cols = FALSE, border_color = NA,color = colorRampPalette( c("royalblue3", "white", "red3") )(100), fontsize_row = 8, fontsize_col = 12,main = "GSEA pathway enrichment" )
+
 ggexport(heatmap_GSEA, filename = "heatmap_GSEA_shared_gene_NO_treatment_ALL_GSEA.tiff", width = 2000,   height = 2800,  res = 300)
 
 #### Gene set involve in the different expression genes with significant
@@ -938,3 +939,322 @@ p <- ggplot(
 
 p
 ggexport(p, filename = "dotplot_GSEA_shared_gene_NO_treatment_ALL_GSEA.tiff", width = 2500,   height = 2000,  res = 300)
+
+#############################################################################################################################
+# enrichment plot of oxydative phosphorylation in main group
+##############################################################################################################################
+
+library(msigdbr)
+library(dplyr)
+library(AnnotationDbi)
+library(org.Hs.eg.db)
+library(ggplot2)
+library(patchwork)
+
+# ============================================================
+# 1. Get HALLMARK OXPHOS gene set
+# ============================================================
+
+hallmark <- msigdbr(
+  species = "Homo sapiens",
+  collection = "H"
+)
+
+oxphos_genes <- hallmark %>%
+  filter(
+    gs_name == "HALLMARK_OXIDATIVE_PHOSPHORYLATION"
+  ) %>%
+  pull(gene_symbol) %>%
+  unique()
+
+
+# ============================================================
+# 2. Prepare DESeq2 results
+# ============================================================
+
+res.df <- as.data.frame(res.main)
+
+res.df$ENSEMBL <- rownames(res.df)
+
+# Remove Ensembl version numbers
+res.df$ENSEMBL <- sub(
+  "\\..*$",
+  "",
+  res.df$ENSEMBL
+)
+
+
+# ============================================================
+# 3. Convert Ensembl -> gene symbol
+# ============================================================
+
+gene_annot <- AnnotationDbi::select(
+  org.Hs.eg.db,
+  keys = res.df$ENSEMBL,
+  columns = "SYMBOL",
+  keytype = "ENSEMBL"
+)
+
+gene_annot <- gene_annot %>%
+  filter(
+    !is.na(SYMBOL),
+    SYMBOL != ""
+  ) %>%
+  distinct(
+    ENSEMBL,
+    .keep_all = TRUE
+  )
+
+
+# ============================================================
+# 4. Add gene symbols
+# ============================================================
+
+res.df <- res.df %>%
+  left_join(
+    gene_annot,
+    by = "ENSEMBL"
+  ) %>%
+  filter(
+    !is.na(SYMBOL),
+    !is.na(stat)
+  )
+
+
+# ============================================================
+# 5. Remove duplicated gene symbols
+# ============================================================
+
+res.df <- res.df %>%
+  group_by(SYMBOL) %>%
+  slice_max(
+    order_by = abs(stat),
+    n = 1,
+    with_ties = FALSE
+  ) %>%
+  ungroup()
+
+
+# ============================================================
+# 6. Create ranked DESeq2 statistic
+# ============================================================
+
+ranked_stats <- res.df$stat
+
+names(ranked_stats) <- res.df$SYMBOL
+
+ranked_stats <- sort(
+  ranked_stats,
+  decreasing = TRUE
+)
+
+
+# ============================================================
+# 7. Match OXPHOS genes
+# ============================================================
+
+oxphos_present <- intersect(
+  oxphos_genes,
+  names(ranked_stats)
+)
+
+cat(
+  "OXPHOS genes found:",
+  length(oxphos_present),
+  "\n"
+)
+
+
+# ============================================================
+# 8. Calculate running enrichment score
+# ============================================================
+#
+# Weighted GSEA running ES
+# Uses absolute DESeq2 statistic as gene weight
+#
+
+N <- length(ranked_stats)
+
+hits <- names(ranked_stats) %in% oxphos_present
+
+Nh <- sum(hits)
+
+# Weight of each hit
+hit_weights <- abs(ranked_stats[hits])
+
+# Normalized hit contribution
+hit_contribution <- ifelse(
+  hits,
+  abs(ranked_stats) / sum(hit_weights),
+  0
+)
+
+# Miss contribution
+miss_contribution <- ifelse(
+  !hits,
+  1 / (N - Nh),
+  0
+)
+
+# Running enrichment score
+running_ES <- cumsum(
+  hit_contribution - miss_contribution
+)
+
+
+# ============================================================
+# 9. Data frame for enrichment curve
+# ============================================================
+
+enrichment_df <- data.frame(
+  rank = seq_len(N),
+  ES = running_ES
+)
+
+
+# ============================================================
+# 10. OXPHOS gene positions
+# ============================================================
+
+hit_df <- data.frame(
+  rank = which(hits)
+)
+
+
+# ============================================================
+# 11. Ranked statistic data
+# ============================================================
+
+rank_df <- data.frame(
+  rank = seq_len(N),
+  stat = as.numeric(ranked_stats)
+)
+
+
+# ============================================================
+# 12. TOP PANEL
+# Running enrichment score
+# ============================================================
+
+p1 <- ggplot(
+  enrichment_df,
+  aes(
+    x = rank,
+    y = ES
+  )
+) +
+  geom_line(
+    linewidth = 1
+  ) +
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed"
+  ) +
+  labs(
+    y = "Enrichment score",
+    x = NULL
+  ) +
+  theme_classic(
+    base_size = 14
+  ) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    plot.margin = margin(
+      5, 5, 0, 5
+    )
+  )
+
+
+# ============================================================
+# 13. MIDDLE PANEL
+# OXPHOS gene positions
+# ============================================================
+
+p2 <- ggplot(
+  hit_df,
+  aes(
+    x = rank
+  )
+) +
+  geom_segment(
+    aes(
+      xend = rank,
+      y = 0,
+      yend = 1
+    ),
+    linewidth = 0.4
+  ) +
+  scale_y_continuous(
+    limits = c(0, 1),
+    expand = c(0, 0)
+  ) +
+  labs(
+    x = NULL,
+    y = NULL
+  ) +
+  theme_void() +
+  theme(
+    plot.margin = margin(
+      0, 5, 0, 5
+    )
+  )
+
+
+# ============================================================
+# 14. BOTTOM PANEL
+# Red -> white -> blue ranked statistic
+# ============================================================
+
+p3 <- ggplot(
+  rank_df,
+  aes(
+    x = rank,
+    y = 1,
+    fill = stat
+  )
+) +
+  geom_tile(
+    height = 1
+  ) +
+  scale_fill_gradient2(
+    low = "blue",
+    mid = "white",
+    high = "red",
+    midpoint = 0
+  ) +
+  labs(
+    x = "Rank in DESeq2 gene list",
+    y = NULL,
+    fill = "DESeq2\nstatistic"
+  ) +
+  scale_y_continuous(
+    breaks = NULL
+  ) +
+  theme_classic(
+    base_size = 14
+  ) +
+  theme(
+    axis.ticks.y = element_blank(),
+    axis.text.y = element_blank(),
+    plot.margin = margin(
+      0, 5, 5, 5
+    )
+  )
+
+
+# ============================================================
+# 15. Combine panels
+# ============================================================
+
+p_final <- p1 /
+  p2 /
+  p3 +
+  plot_layout(
+    heights = c(
+      4,
+      1,
+      1
+    )
+  )
+ggexport(p_final, filename = "enrichment_oxydative_phosphorylation_MAIN_NO_treatment_ALL_GSEA.tiff", width = 2500,   height = 2000,  res = 300)
