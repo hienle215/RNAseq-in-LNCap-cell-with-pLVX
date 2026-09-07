@@ -1,0 +1,75 @@
+setwd("C:\\Users\\leh\\OneDrive - TUNI.fi\\Desktop\\lncRNA_prostate_cancer\\RNAseq_Novogene_2026\\poster")
+############################################################
+## Mitochondrial / OXPHOS protein heatmap
+## EPCART del4 and del56
+############################################################
+
+library(readr)
+library(dplyr)
+library(tibble)
+library(pheatmap)
+
+############################################################
+## 1. Enter the mitochondrial/OXPHOS proteins
+############################################################
+
+mito_data <- tribble(
+  ~Gene,   ~del4,  ~del56,
+
+  "UQCRC2", -0.69, -0.28,
+  "NDUFA12", -0.70, -0.27,
+  "COQ3",   -0.75,  0.05,
+  "DECR1",  -0.74, -0.46,
+  "ETFDH",  -0.55, -0.68,
+  "ACADM",  -0.20, -0.70,
+  "GPD2",   -0.74, -0.71,
+  "MARS2",  -0.59, -0.72,
+  "WARS2",   0.05, -0.54,
+  "GFM2",    0.04, -0.56,
+  "MRPL23", -0.16, -0.66,
+  "MRPS28",  0.05,  0.66,
+  "AKAP1",  -0.33,  0.44,
+  "SLC27A2", 0.76, -0.02,
+  "SCCPDH",-0.97, -0.63,
+  "NQO1",   -0.46, -1.03
+)
+
+############################################################
+## 2. Convert to matrix
+############################################################
+
+heatmap_matrix <- mito_data %>%
+  column_to_rownames("Gene") %>%
+  as.matrix()
+
+############################################################
+## 3. Make heatmap
+############################################################
+
+heatmap = pheatmap(
+  heatmap_matrix,
+
+  # Show actual log2 fold changes
+  display_numbers = TRUE,
+  number_format = "%.2f",
+
+  # NA = grey
+  na_col = "grey",
+
+  # Cluster proteins
+  cluster_rows = TRUE,
+  cluster_cols = FALSE,
+
+  # Do not scale: preserve actual log2FC
+  scale = "none",
+
+  # Labels
+  main = "Mitochondrial / OXPHOS proteins",
+  fontsize = 10,
+  fontsize_row = 9,
+  fontsize_col = 11,
+
+  border_color = NA
+)
+library(ggpubr)
+ggexport(heatmap, filename = "heatmap_protein_del4_del56.tiff", width = 1200,   height = 1500,  res = 300)
