@@ -891,3 +891,225 @@ ggplot(
 
 
 library(ggpubr)
+######################################################################################################
+## mitochondrial enrichment
+######################################################################################################
+library(msigdbr)
+library(dplyr)
+
+reactome <- msigdbr(
+  species = "Homo sapiens",
+  collection = "C2",
+  subcollection = "CP:REACTOME"
+)
+
+mito_biogenesis <- reactome %>%
+  filter(gs_name == "REACTOME_MITOCHONDRIAL_BIOGENESIS") %>%
+  select(gene_symbol) %>%
+  distinct()
+mito_genes <- mito_biogenesis$gene_symbol
+
+mito_genes
+length(mito_genes)
+res.main.df %>%
+  filter(SYMBOL %in% mito_genes) %>%
+  select(SYMBOL, log2FoldChange, padj) %>%
+  arrange(padj)
+unique(reactome$gs_name)[grep(
+  "MITOCHONDRIAL_BIOGENESIS",
+  unique(reactome$gs_name)
+)]
+res_del4 %>%
+  filter(SYMBOL %in% mito_genes) %>%
+  select(SYMBOL, log2FoldChange, padj) %>%
+  arrange(padj)
+
+res_del56 %>%
+  filter(SYMBOL %in% mito_genes) %>%
+  select(SYMBOL, log2FoldChange, padj) %>%
+  arrange(padj)
+
+mito_main <- res.main.df %>%
+  filter(SYMBOL %in% mito_genes) %>%
+  select(SYMBOL, log2FoldChange, padj) %>%
+  filter(!is.na(SYMBOL), !is.na(log2FoldChange)) %>%
+  group_by(SYMBOL) %>%
+  slice_min(padj, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  mutate(group = "Main")
+
+mito_del4 <- res_del4 %>%
+  filter(SYMBOL %in% mito_genes) %>%
+  select(SYMBOL, log2FoldChange, padj) %>%
+  filter(!is.na(SYMBOL), !is.na(log2FoldChange)) %>%
+  group_by(SYMBOL) %>%
+  slice_min(padj, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  mutate(group = "del4")
+
+mito_del56 <- res_del56 %>%
+  filter(SYMBOL %in% mito_genes) %>%
+  select(SYMBOL, log2FoldChange, padj) %>%
+  filter(!is.na(SYMBOL), !is.na(log2FoldChange)) %>%
+  group_by(SYMBOL) %>%
+  slice_min(padj, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  mutate(group = "del56")
+
+mito_all <- bind_rows(
+  mito_main,
+  mito_del4,
+  mito_del56
+)
+library(tidyr)
+library(tibble)
+library(pheatmap)
+
+mito_matrix <- mito_all %>%
+  select(SYMBOL, group, log2FoldChange) %>%
+  pivot_wider(
+    names_from = group,
+    values_from = log2FoldChange
+  ) %>%
+  column_to_rownames("SYMBOL") %>%
+  as.matrix()
+
+mito_heatmap = pheatmap(
+  mito_matrix,
+  scale = "row",
+  cluster_rows = TRUE,
+  cluster_cols = FALSE,
+  show_rownames = TRUE,
+  fontsize_row = 7,
+  main = "Mitochondrial biogenesis — relative pattern"
+)
+setwd("C:\\Users\\leh\\OneDrive - TUNI.fi\\Desktop\\lncRNA_prostate_cancer")
+ggexport(mito_heatmap,filename = "mito_heatmap_main_del4_del56_10_2026.tiff", width = 1300,   height = 2200,  res = 300)
+
+#####################################################################################################################
+### oxydative phosphorylation
+#####################################################################################################################
+oxphos_kegg <- msigdbr(
+  species = "Homo sapiens",
+  collection = "C2",
+  subcollection = "CP:KEGG_LEGACY"
+) %>%
+  filter(gs_name == "KEGG_OXIDATIVE_PHOSPHORYLATION") %>%
+  select(gene_symbol) %>%
+  distinct()
+
+nrow(oxphos_kegg)
+oxphos_main <- res.main.df %>%
+  filter(SYMBOL %in% oxphos_kegg$gene_symbol) %>%
+  select(SYMBOL, log2FoldChange, padj) %>%
+  filter(!is.na(SYMBOL), !is.na(log2FoldChange)) %>%
+  group_by(SYMBOL) %>%
+  slice_min(padj, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  mutate(group = "Main")
+
+oxphos_del4 <- res_del4 %>%
+  filter(SYMBOL %in% oxphos_kegg$gene_symbol) %>%
+  select(SYMBOL, log2FoldChange, padj) %>%
+  filter(!is.na(SYMBOL), !is.na(log2FoldChange)) %>%
+  group_by(SYMBOL) %>%
+  slice_min(padj, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  mutate(group = "del4")
+
+oxphos_del56 <- res_del56 %>%
+  filter(SYMBOL %in% oxphos_kegg$gene_symbol) %>%
+  select(SYMBOL, log2FoldChange, padj) %>%
+  filter(!is.na(SYMBOL), !is.na(log2FoldChange)) %>%
+  group_by(SYMBOL) %>%
+  slice_min(padj, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  mutate(group = "del56")
+
+oxphos_all <- bind_rows(
+  oxphos_main,
+  oxphos_del4,
+  oxphos_del56
+)
+oxphos_matrix <- oxphos_all %>%
+  select(SYMBOL, group, log2FoldChange) %>%
+  pivot_wider(
+    names_from = group,
+    values_from = log2FoldChange
+  ) %>%
+  column_to_rownames("SYMBOL") %>%
+  as.matrix()
+
+kegg_heatmap_oxidative = pheatmap(
+  oxphos_matrix,
+  scale = "row",
+  cluster_rows = TRUE,
+  cluster_cols = FALSE,
+  show_rownames = TRUE,
+  fontsize_row = 7,
+  main = "KEGG oxidative phosphorylation — relative pattern"
+)
+ggexport(kegg_heatmap_oxidative,filename = "kegg_heatmap_oxidative_main_del4_del56_10_2026.tiff", width = 1300,   height = 2200,  res = 300)
+
+library(msigdbr)
+library(dplyr)
+
+reactome_oxphos <- msigdbr(
+  species = "Homo sapiens",
+  collection = "C2",
+  subcollection = "CP:REACTOME"
+) %>%
+  filter(gs_name == "REACTOME_RESPIRATORY_ELECTRON_TRANSPORT") %>%
+  select(gene_symbol) %>%
+  distinct()
+
+nrow(reactome_oxphos)
+
+reactome_oxphos
+oxphos_reactome_genes <- reactome_oxphos$gene_symbol
+oxphos_reactome_all <- bind_rows(
+  res.main.df %>%
+    filter(SYMBOL %in% oxphos_reactome_genes) %>%
+    select(SYMBOL, log2FoldChange, padj) %>%
+    filter(!is.na(SYMBOL), !is.na(log2FoldChange)) %>%
+    group_by(SYMBOL) %>%
+    slice_min(padj, n = 1, with_ties = FALSE) %>%
+    ungroup() %>%
+    mutate(group = "Main"),
+
+  res_del4 %>%
+    filter(SYMBOL %in% oxphos_reactome_genes) %>%
+    select(SYMBOL, log2FoldChange, padj) %>%
+    filter(!is.na(SYMBOL), !is.na(log2FoldChange)) %>%
+    group_by(SYMBOL) %>%
+    slice_min(padj, n = 1, with_ties = FALSE) %>%
+    ungroup() %>%
+    mutate(group = "del4"),
+
+  res_del56 %>%
+    filter(SYMBOL %in% oxphos_reactome_genes) %>%
+    select(SYMBOL, log2FoldChange, padj) %>%
+    filter(!is.na(SYMBOL), !is.na(log2FoldChange)) %>%
+    group_by(SYMBOL) %>%
+    slice_min(padj, n = 1, with_ties = FALSE) %>%
+    ungroup() %>%
+    mutate(group = "del56")
+)
+oxphos_reactome_matrix <- oxphos_reactome_all %>%
+  select(SYMBOL, group, log2FoldChange) %>%
+  tidyr::pivot_wider(
+    names_from = group,
+    values_from = log2FoldChange
+  ) %>%
+  tibble::column_to_rownames("SYMBOL") %>%
+  as.matrix()
+reactome_oxydative = pheatmap(
+  oxphos_reactome_matrix,
+  scale = "row",
+  cluster_rows = TRUE,
+  cluster_cols = FALSE,
+  show_rownames = TRUE,
+  fontsize_row = 7,
+  main = "Oxidative phosphorylation — relative pattern"
+)
+ggexport(reactome_oxydative,filename = "reactome_oxydative_main_del4_del56_10_2026.tiff", width = 1300,   height = 2800,  res = 300)
