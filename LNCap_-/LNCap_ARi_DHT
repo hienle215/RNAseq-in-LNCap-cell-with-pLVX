@@ -1,0 +1,548 @@
+library(tximport)
+library(DESeq2)
+library(dplyr)
+library(ggplot2)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(AnnotationDbi)
+library(enrichplot)
+base_dir <- "C:/Users/leh/OneDrive - TUNI.fi/Desktop/lncRNA_prostate_cancer/RNAseq_Novogene_2026/data/output_AGR2long"
+
+#1. Run this diagnostic code in R
+library(dplyr)
+
+# Explicitly construct TSV paths; do not use abundance.h5
+base_dir <- file.path(
+  "C:/Users/leh/OneDrive - TUNI.fi/Desktop/",
+  "lncRNA_prostate_cancer/RNAseq_Novogene_2026/data/output_AGR2long"
+)
+
+groups <- c("LN_0", "LN_10", "LN_AR", "LN_NC")
+
+sample_info <- expand.grid(
+  group = groups,
+  replicate = 1:3,
+  stringsAsFactors = FALSE
+) %>%
+  mutate(
+    sample = paste0(group, "_", replicate),
+    file = file.path(base_dir, sample, "abundance.tsv")
+  ) %>%
+  arrange(match(group, groups), replicate)
+
+files <- setNames(sample_info$file, sample_info$sample)
+
+stopifnot(all(file.exists(files)))
+
+# Read TSV files directly
+abundance_list <- lapply(files, function(f) {
+  read.delim(f, check.names = FALSE)
+})
+
+names(abundance_list) <- names(files)
+
+# Check sample data
+dim(abundance_list[[1]])
+head(abundance_list[[1]])
+
+#2. Aggregate transcript counts to gene counts
+library(DESeq2)
+library(tibble)
+
+# Build transcript-to-gene map from the first TSV
+first <- abundance_list[[1]]
+
+fields <- strsplit(first$target_id, "|", fixed = TRUE)
+
+tx2gene <- data.frame(
+  target_id = first$target_id,
+  gene_id = sub(
+    "\\.[0-9]+$", "",
+    vapply(fields, `[`, character(1), 2)
+  ),
+  stringsAsFactors = FALSE
+)
+
+# Aggregate estimated transcript counts to genes
+gene_counts_list <- lapply(abundance_list, function(x) {
+  gene_id <- tx2gene$gene_id
+  rowsum(x$est_counts, group = gene_id, reorder = FALSE)
+})
+
+# Align gene rows across samples
+all_genes <- Reduce(union, lapply(gene_counts_list, rownames))
+
+count_matrix <- sapply(gene_counts_list, function(x) {
+  out <- setNames(rep(0, length(all_genes)), all_genes)
+  out[rownames(x)] <- x[, 1]
+  out
+})
+
+rownames(count_matrix) <- all_genes
+colnames(count_matrix) <- names(abundance_list)
+
+dim(count_matrix)
+
+# 3 Run the two DESeq2 comparisons
+library(DESeq2)
+library(dplyr)
+library(tibble)
+library(ggplot2)
+
+# Output folder
+out_dir <- file.path(
+  "C:/Users/leh/OneDrive - TUNI.fi/Desktop/",
+  "lncRNA_prostate_cancer/RNAseq_Novogene_2026/analysis_results"
+)
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+# Confirm sample order
+stopifnot(all(sample_info$sample %in% colnames(count_matrix)))
+count_matrix <- count_matrix[, sample_info$sample, drop = FALSE]
+
+# Direct aggregation gives estimated counts that may be fractional.
+# Rounding is a workaround for this interim analysis, not the preferred
+# final approach; see the note at the end.
+count_matrix_round <- round(count_matrix)
+storage.mode(count_matrix_round) <- "integer"
+
+run_deseq <- function(count_mat, metadata,
+                      reference_group, comparison_group,
+                      prefix) {
+
+  keep <- metadata$group %in% c(reference_group, comparison_group)
+
+  meta <- metadata[keep, , drop = FALSE]
+  meta$group <- factor(
+    meta$group,
+    levels = c(reference_group, comparison_group)
+  )
+  rownames(meta) <- meta$sample
+
+  mat <- count_mat[, meta$sample, drop = FALSE]
+
+  dds <- DESeqDataSetFromMatrix(
+    countData = mat,
+    colData = meta,
+    design = ~ group
+  )
+
+  # Remove genes with very low counts
+  dds <- dds[rowSums(counts(dds)) >= 10, ]
+
+  dds <- DESeq(dds)
+
+  res <- results(
+    dds,
+    contrast = c("group", comparison_group, reference_group),
+    alpha = 0.05
+  )
+
+  res_df <- as.data.frame(res) %>%
+    rownames_to_column("gene_id") %>%
+    arrange(padj)
+
+  write.csv(
+    res_df,
+    file.path(out_dir, paste0(prefix, "_DESeq2.csv")),
+    row.names = FALSE
+  )
+
+  # Variance-stabilized expression for PCA and heatmaps
+  vsd <- vst(dds, blind = FALSE)
+
+  write.csv(
+    as.data.frame(counts(dds, normalized = TRUE)) %>%
+      rownames_to_column("gene_id"),
+    file.path(out_dir, paste0(prefix, "_normalized_counts.csv")),
+    row.names = FALSE
+  )
+
+  list(
+    dds = dds,
+    res = res_df,
+    vst = assay(vsd),
+    metadata = meta
+  )
+}
+
+# Comparison 1: DHT-treated vs untreated
+dht <- run_deseq(
+  count_mat = count_matrix_round,
+  metadata = sample_info,
+  reference_group = "LN_0",
+  comparison_group = "LN_10",
+  prefix = "DHT_10_vs_0"
+)
+
+# Comparison 2: AR siRNA vs negative control
+ar_kd <- run_deseq(
+  count_mat = count_matrix_round,
+  metadata = sample_info,
+  reference_group = "LN_NC",
+  comparison_group = "LN_AR",
+  prefix = "ARsiRNA_vs_NC"
+)
+
+# Summary
+cat("DHT comparison: ",
+    sum(dht$res$padj < 0.05, na.rm = TRUE),
+    " significant genes\n")
+
+cat("AR knockdown comparison: ",
+    sum(ar_kd$res$padj < 0.05, na.rm = TRUE),
+    " significant genes\n")
+
+#4 add gene symbols to the results
+first <- abundance_list[[1]]
+fields <- strsplit(first$target_id, "|", fixed = TRUE)
+
+gene_annotation <- data.frame(
+  gene_id = sub(
+    "\\.[0-9]+$", "",
+    vapply(fields, `[`, character(1), 2)
+  ),
+  gene_symbol = vapply(fields, `[`, character(1), 6),
+  stringsAsFactors = FALSE
+) %>%
+  filter(
+    !is.na(gene_symbol),
+    gene_symbol != "",
+    gene_symbol != "-"
+  ) %>%
+  distinct(gene_id, .keep_all = TRUE)
+
+add_symbols <- function(res) {
+  res %>%
+    left_join(gene_annotation, by = "gene_id")
+}
+
+dht_annotated <- add_symbols(dht$res)
+ar_kd_annotated <- add_symbols(ar_kd$res)
+
+write.csv(
+  dht_annotated,
+  file.path(out_dir, "DHT_annotated.csv"),
+  row.names = FALSE
+)
+
+write.csv(
+  ar_kd_annotated,
+  file.path(out_dir, "ARsiRNA_annotated.csv"),
+  row.names = FALSE
+)
+
+# 5 make volcano plots
+make_volcano <- function(res_df, title, filename) {
+
+  df <- res_df %>%
+    mutate(
+      status = case_when(
+        !is.na(padj) & padj < 0.05 & log2FoldChange > 1 ~ "Up",
+        !is.na(padj) & padj < 0.05 & log2FoldChange < -1 ~ "Down",
+        TRUE ~ "Not significant"
+      ),
+      neglog10padj = -log10(pmax(padj, 1e-300))
+    )
+
+  labels <- df %>%
+    filter(status %in% c("Up", "Down")) %>%
+    group_by(status) %>%
+    arrange(padj, .by_group = TRUE) %>%
+    slice_head(n = 10) %>%
+    ungroup() %>%
+    mutate(label = ifelse(
+      is.na(gene_symbol) | gene_symbol == "",
+      gene_id, gene_symbol
+    ))
+
+  p <- ggplot(df, aes(log2FoldChange, neglog10padj)) +
+    geom_point(aes(color = status), alpha = 0.7, size = 1.3) +
+    geom_vline(xintercept = c(-1, 1), linetype = "dashed") +
+    geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
+    geom_text(
+      data = labels,
+      aes(label = label),
+      check_overlap = TRUE,
+      size = 3,
+      vjust = -0.5
+    ) +
+    scale_color_manual(values = c(
+      "Up" = "#D73027",
+      "Down" = "#4575B4",
+      "Not significant" = "grey75"
+    )) +
+    labs(
+      title = title,
+      x = "Log2 fold change",
+      y = "-Log10 adjusted p-value",
+      color = NULL
+    ) +
+    theme_classic(base_size = 12)
+
+  ggsave(
+    file.path(out_dir, filename),
+    p, width = 9, height = 7, dpi = 300
+  )
+
+  print(p)
+}
+
+make_volcano(
+  dht_annotated,
+  "DHT 10 nM vs 0 nM",
+  "DHT_volcano.png"
+)
+
+make_volcano(
+  ar_kd_annotated,
+  "AR siRNA vs negative control",
+  "ARsiRNA_volcano.png"
+)
+
+#6 run hallmark and reactome GSEA
+library(msigdbr)
+library(fgsea)
+
+# Hallmark gene sets
+msig_h <- msigdbr(
+  species = "Homo sapiens",
+  collection = "H"
+)
+
+pathways_h <- split(msig_h$gene_symbol, msig_h$gs_name)
+
+# Reactome gene sets
+msig_r <- msigdbr(
+  species = "Homo sapiens",
+  collection = "C2",
+  subcollection = "CP:REACTOME"
+)
+
+pathways_r <- split(msig_r$gene_symbol, msig_r$gs_name)
+
+run_gsea <- function(res_df, pathways, prefix) {
+
+  ranked <- res_df %>%
+    filter(
+      !is.na(stat),
+      !is.na(gene_symbol),
+      gene_symbol != "",
+      gene_symbol != "-"
+    ) %>%
+    group_by(gene_symbol) %>%
+    slice_max(
+      order_by = abs(stat),
+      n = 1,
+      with_ties = FALSE
+    ) %>%
+    ungroup()
+
+  stats <- ranked$stat
+  names(stats) <- ranked$gene_symbol
+  stats <- sort(stats, decreasing = TRUE)
+
+  set.seed(123)
+
+  fg <- fgsea(
+    pathways = pathways,
+    stats = stats,
+    minSize = 10,
+    maxSize = 500,
+    eps = 0
+  ) %>%
+    as.data.frame() %>%
+    arrange(padj)
+
+  # Make the leading-edge column easier to save to CSV
+  fg$leadingEdge <- vapply(
+    fg$leadingEdge,
+    paste,
+    collapse = ";",
+    FUN.VALUE = character(1)
+  )
+
+  write.csv(
+    fg,
+    file.path(out_dir, paste0(prefix, ".csv")),
+    row.names = FALSE
+  )
+
+  fg
+}
+
+# Hallmark GSEA
+gsea_dht_h <- run_gsea(
+  dht_annotated, pathways_h, "DHT_Hallmark_GSEA"
+)
+
+gsea_ar_h <- run_gsea(
+  ar_kd_annotated, pathways_h, "ARsiRNA_Hallmark_GSEA"
+)
+
+# Reactome GSEA
+gsea_dht_r <- run_gsea(
+  dht_annotated, pathways_r, "DHT_Reactome_GSEA"
+)
+
+gsea_ar_r <- run_gsea(
+  ar_kd_annotated, pathways_r, "ARsiRNA_Reactome_GSEA"
+)
+
+#7 extract oxidative phosphorylation and mitochondrial pathways
+mito_pattern <- paste(
+  "OXIDATIVE PHOSPHORYLATION",
+  "MITOCHONDR",
+  "RESPIRATORY ELECTRON TRANSPORT",
+  sep = "|"
+)
+
+dht_mito <- gsea_dht_r %>%
+  filter(grepl(mito_pattern, pathway, ignore.case = TRUE)) %>%
+  select(pathway, NES, pval, padj, size) %>%
+  arrange(padj)
+
+ar_mito <- gsea_ar_r %>%
+  filter(grepl(mito_pattern, pathway, ignore.case = TRUE)) %>%
+  select(pathway, NES, pval, padj, size) %>%
+  arrange(padj)
+
+print(dht_mito, n = 30)
+print(ar_mito, n = 30)
+
+write.csv(dht_mito, file.path(out_dir, "DHT_mitochondrial_pathways.csv"),
+          row.names = FALSE)
+
+write.csv(ar_mito, file.path(out_dir, "ARsiRNA_mitochondrial_pathways.csv"),
+          row.names = FALSE)
+
+# 7 Make heatmap of OXPHOS
+# Extract Hallmark OXPHOS genes
+oxphos_genes <- unique(
+  msig_h$gene_symbol[
+    msig_h$gs_name == "HALLMARK_OXIDATIVE_PHOSPHORYLATION"
+  ]
+)
+
+# Use the DHT experiment's VST matrix
+vst_mat <- dht$vst
+
+# Map gene IDs to symbols, then retain OXPHOS genes
+vst_symbols <- data.frame(
+  gene_id = rownames(vst_mat),
+  gene_symbol = gene_annotation$gene_symbol[
+    match(rownames(vst_mat), gene_annotation$gene_id)
+  ],
+  vst_mat,
+  check.names = FALSE
+)
+
+vst_symbols <- vst_symbols %>%
+  filter(!is.na(gene_symbol), gene_symbol %in% oxphos_genes)
+
+# If multiple gene IDs share a symbol, keep the one with the highest
+# average VST expression for a readable heatmap
+vst_symbols$mean_expression <- rowMeans(
+  as.matrix(vst_symbols[, sample_info$sample[
+    sample_info$group %in% c("LN_0", "LN_10")
+  ], drop = FALSE])
+)
+
+vst_symbols <- vst_symbols %>%
+  arrange(desc(mean_expression)) %>%
+  distinct(gene_symbol, .keep_all = TRUE)
+
+heatmap_mat <- as.matrix(
+  vst_symbols[, dht$metadata$sample, drop = FALSE]
+)
+
+rownames(heatmap_mat) <- vst_symbols$gene_symbol
+
+# Order samples by condition
+annotation_col <- data.frame(
+  Condition = dht$metadata$group
+)
+rownames(annotation_col) <- dht$metadata$sample
+
+pheatmap(
+  heatmap_mat,
+  scale = "row",
+  cluster_rows = TRUE,
+  cluster_cols = FALSE,
+  show_rownames = FALSE,
+  annotation_col = annotation_col,
+  main = "Hallmark OXPHOS: DHT response",
+  filename = file.path(out_dir, "DHT_OXPHOS_heatmap.png"),
+  width = 9,
+  height = 10
+)
+
+# important quality control note: Check whether the 3 replicates in each group are biological replicates and whether LN_AR means AR_siRNA-treated cells
+gsea_dht_h %>%
+  filter(pathway == "HALLMARK_OXIDATIVE_PHOSPHORYLATION") %>%
+  select(pathway, NES, pval, padj)
+
+gsea_ar_h %>%
+  filter(pathway == "HALLMARK_OXIDATIVE_PHOSPHORYLATION") %>%
+  select(pathway, NES, pval, padj)
+
+### make heatmap for ARsiRNA and NC in LNcap
+library(pheatmap)
+library(dplyr)
+
+# Hallmark OXPHOS genes
+oxphos_genes <- unique(
+  msig_h$gene_symbol[
+    msig_h$gs_name == "HALLMARK_OXIDATIVE_PHOSPHORYLATION"
+  ]
+)
+
+# VST expression from AR knockdown experiment
+vst_mat <- ar_kd$vst
+
+# Map gene IDs to gene symbols
+gene_symbols <- gene_annotation$gene_symbol[
+  match(rownames(vst_mat), gene_annotation$gene_id)
+]
+
+# Keep OXPHOS genes
+keep <- !is.na(gene_symbols) & gene_symbols %in% oxphos_genes
+
+oxphos_mat <- vst_mat[keep, , drop = FALSE]
+rownames(oxphos_mat) <- gene_symbols[keep]
+
+# Keep one row per gene symbol if duplicates exist
+oxphos_mat <- oxphos_mat[
+  order(rowMeans(oxphos_mat), decreasing = TRUE),
+  ,
+  drop = FALSE
+]
+oxphos_mat <- oxphos_mat[
+  !duplicated(rownames(oxphos_mat)),
+  ,
+  drop = FALSE
+]
+
+# Sample annotation
+annotation_col <- data.frame(
+  Condition = ar_kd$metadata$group
+)
+rownames(annotation_col) <- ar_kd$metadata$sample
+
+# Save heatmap
+pheatmap(
+  oxphos_mat,
+  scale = "row",
+  cluster_rows = TRUE,
+  cluster_cols = FALSE,
+  show_rownames = FALSE,
+  annotation_col = annotation_col,
+  main = "OXPHOS: AR siRNA vs Negative Control",
+  filename = file.path(out_dir, "ARsiRNA_OXPHOS_heatmap.png"),
+  width = 9,
+  height = 10
+)
+
+cat("Heatmap saved to:",
+    file.path(out_dir, "ARsiRNA_OXPHOS_heatmap.png"), "\n")
+
